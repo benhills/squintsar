@@ -143,5 +143,7 @@ def SAR_aperture_raybend(r0, h, x, theta=0., n=n):
 
     # range within aperture
     r = get_range(x-x0, h, thetas)
+    # range of closest approach
+    r_ca = h + d
 
-    return r-r0
+    return r-r_ca
