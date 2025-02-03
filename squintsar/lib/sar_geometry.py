@@ -34,9 +34,10 @@ def snell(theta, n=n):
     return np.arcsin(np.sin(theta)/n)
 
 
-def get_depth(r0, h, theta, n=n):
+def get_depth_dist(r0, h, theta, n=n):
     """
-    Use Snell's law and simple trigonometry to find the depth to target.
+    Use Snell's law and simple trigonometry to find the depth of target
+    and along-track distance to closest approach.
 
     Parameters
     ----------
@@ -87,8 +88,7 @@ def get_theta(x, h, d, n=n):
 
 def get_range(x, h, theta, n=n):
     """
-    Use a small angle approximation to get
-    the squint angle from known geometry.
+    Range to target.
 
     Parameters
     ----------
@@ -114,6 +114,29 @@ def get_range(x, h, theta, n=n):
     return r_air+r_ice
 
 
+def aperture_extent(r0, h, theta_sq, theta_beam=.1, dx=1, x_ov=1):
+    """
+    Define the aperture extent based on the half beamwidth and squint angle.
+    Convert to index of the image array.
+    """
+
+    # for a given squint angle (theta) find the depth in ice
+    # and along-track distance (x) from center of aperture to target
+    d, x0 = get_depth_dist(r0, h, theta_sq)
+    # define the synthetic aperture extents
+    d_, x_start = get_depth_dist(r0, h, theta_sq-theta_beam/2.)
+    d_, x_end = get_depth_dist(r0, h, theta_sq+theta_beam/2.)
+
+    # aperture extents (index)
+    ind_start = np.round((x_start-x0)/(dx/x_ov)).astype(int)
+    ind_end = np.round((x_end-x0)/(dx/x_ov)).astype(int)
+
+    # along-track distance for all points in the synthetic aperture
+    x_sa = np.linspace(x_start, x_end, (ind_end-ind_start)+1)
+
+    return x_sa, ind_start, ind_end
+
+
 def SAR_aperture_raybend(r0, h, x, theta=0., n=n):
     """
     Ray bending for sounding in two mediums.
@@ -136,7 +159,7 @@ def SAR_aperture_raybend(r0, h, x, theta=0., n=n):
 
     # for a given squint angle (theta) find the depth in ice
     # and along-track distance (x) from center of aperture to target
-    d, x0 = get_depth(r0, h, theta)
+    d, x0 = get_depth_dist(r0, h, theta)
 
     # small offsets to the squint angle within the aperture
     thetas = get_theta(x-x0, h, d)
