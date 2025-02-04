@@ -10,6 +10,8 @@ import numpy as np
 
 """
 Geometric functions for the squintsar processing library
+Following Heliere et al. (2007)
+https://doi.org/10.1109/TGRS.2007.897433
 """
 
 # refractive index for ice
@@ -66,7 +68,8 @@ def get_depth_dist(r0, h, theta, n=n):
 
 def get_refraction_point(x, h, d, n=n):
     """
-    Get the squint angle from known geometry.
+    Get the refraction point from known geometry.
+    Solve a fourth order polynomial.
 
     Parameters
     ----------
@@ -77,7 +80,7 @@ def get_refraction_point(x, h, d, n=n):
 
     Output
     ----------
-    theta:  float, squint angle (propagation direction through air)
+    s:  float, along-track location where the ray intersects the ice surface
     """
 
     a4 = n**2.-1.
