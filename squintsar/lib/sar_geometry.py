@@ -64,10 +64,9 @@ def get_depth_dist(r0, h, theta, n=n):
     return d, x_air+x_ice
 
 
-def get_theta(x, h, d, n=n):
+def get_refraction_point(x, h, d, n=n):
     """
-    Use a small angle approximation to get the squint angle
-    from known geometry.
+    Get the squint angle from known geometry.
 
     Parameters
     ----------
@@ -81,12 +80,23 @@ def get_theta(x, h, d, n=n):
     theta:  float, squint angle (propagation direction through air)
     """
 
-    # TODO: this is an approximation which assumes small angles
-    # the exact solution is viable to implement although slower
-    return x/(h+d/n)
+    a4 = n**2.-1.
+    a3 = -2*a4*x
+    a2 = a4*x**2.+(n*h)**2.-d**2.
+    a1 = 2*d**2.*x
+    a0 = -d**2.*x**2.
+
+    # Define the coefficients of the polynomial
+    # in descending order of power (e.g., ax^4 + bx^3 + cx^2 + dx + e)
+    coefficients = [a4, a3, a2, a1, a0]
+
+    # Calculate the roots
+    roots = np.roots(coefficients)
+
+    return roots[np.argmin(abs(roots))]
 
 
-def get_range(x, h, theta, n=n):
+def get_range(x, h, d, s, n=n):
     """
     Range to target.
 
@@ -102,16 +112,12 @@ def get_range(x, h, theta, n=n):
     r:  float,  range to target
     """
 
-    # Snells law
-    theta_ice = snell(theta, n)
     # propagation through air
-    r_air, x_air = h/np.cos(theta), h*np.tan(theta)
-    # along-track distance in ice
-    x_ice = x - x_air
+    r_air = np.sqrt(h**2.+(x-s)**2.) - h
     # propagation through ice
-    r_ice = x_ice/np.sin(theta_ice)
+    r_ice = np.sqrt(d**2.+s**2.) - d
 
-    return r_air+r_ice
+    return r_air+n*r_ice
 
 
 def aperture_extent(r0, h, theta_sq, theta_beam=.1, dx=1, x_ov=1):
@@ -162,11 +168,9 @@ def SAR_aperture_raybend(r0, h, x, theta=0., n=n):
     d, x0 = get_depth_dist(r0, h, theta)
 
     # small offsets to the squint angle within the aperture
-    thetas = get_theta(x-x0, h, d)
+    s = get_refraction_point(x-x0, h, d)
 
     # range within aperture
-    r = get_range(x-x0, h, thetas)
-    # range of closest approach
-    r_ca = h + d
+    r = get_range(x-x0, h, d, s)
 
-    return r-r_ca
+    return r
