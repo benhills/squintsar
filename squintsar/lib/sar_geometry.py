@@ -137,8 +137,8 @@ def aperture_extent(r0, h, theta_sq, theta_beam=.1, dx=1, x_ov=1):
     d_, x_end = get_depth_dist(r0, h, theta_sq+theta_beam/2.)
 
     # aperture extents (index)
-    ind_start = np.round((x_start-x0)/(dx/x_ov)).astype(int)
-    ind_end = np.round((x_end-x0)/(dx/x_ov)).astype(int)
+    ind_start = np.round(x_start/(dx/x_ov)).astype(int)
+    ind_end = np.round(x_end/(dx/x_ov)).astype(int)
 
     # along-track distance for all points in the synthetic aperture
     x_sa = np.linspace(x_start, x_end, (ind_end-ind_start)+1)
@@ -170,10 +170,13 @@ def SAR_aperture_raybend(r0, h, x, theta=0., n=n):
     # and along-track distance (x) from center of aperture to target
     d, x0 = get_depth_dist(r0, h, theta)
 
-    # small offsets to the squint angle within the aperture
-    s = get_refraction_point(x-x0, h, d)
-
-    # range within aperture
-    r = get_range(x-x0, h, d, s)
+    # reference function placed consistently in the oversized array
+    if d < 0:  # for returns above the ice surface
+        r = np.sqrt(h**2.+(x-x0)**2.)-h
+    else:
+        # small offsets to the squint angle within the aperture
+        s = get_refraction_point(x-x0, h, d)
+        # range within aperture
+        r = get_range(x-x0, h, d, s)
 
     return r
