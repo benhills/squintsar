@@ -83,20 +83,30 @@ def get_refraction_point(x, h, d, n=n):
     s:  float, along-track location where the ray intersects the ice surface
     """
 
-    a4 = n**2.-1.
-    a3 = -2*a4*x
-    a2 = a4*x**2.+(n*h)**2.-d**2.
-    a1 = 2*d**2.*x
-    a0 = -d**2.*x**2.
+    if not hasattr(x, '__len__'):
+        x = np.array([x])
 
-    # Define the coefficients of the polynomial
-    # in descending order of power (e.g., ax^4 + bx^3 + cx^2 + dx + e)
-    coefficients = [a4, a3, a2, a1, a0]
+    s = np.empty_like(x)
+    for i, xi in enumerate(x):
+        a4 = n**2.-1.
+        a3 = -2*a4*xi
+        a2 = a4*xi**2.+(n*h)**2.-d**2.
+        a1 = 2*d**2.*xi
+        a0 = -d**2.*xi**2.
 
-    # Calculate the roots
-    roots = np.roots(coefficients)
+        # Define the coefficients of the polynomial
+        # in descending order of power (e.g., ax^4 + bx^3 + cx^2 + dx + e)
+        coefficients = [a4, a3, a2, a1, a0]
 
-    return roots[np.argmin(abs(roots))]
+        # Calculate the roots
+        roots = np.roots(coefficients)
+        # the smallest is the one we want
+        s[i] = roots[np.argmin(abs(roots))]
+
+    if len(s) == 1:
+        return s[0]
+    else:
+        return s
 
 
 def get_range(x, h, d, s, n=n):
