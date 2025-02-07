@@ -25,7 +25,7 @@ def dB(P):
     return 10.*np.log10(P)
 
 
-def r2p(r, fc=150e6, c=3e8):
+def r2p(r, fc=150e6):
     """
     Convert range to phase
 
@@ -35,7 +35,7 @@ def r2p(r, fc=150e6, c=3e8):
     """
 
     # phase
-    return 4.*np.pi*fc*r/c
+    return 4.*np.pi*fc*r
 
 
 def calc_dist(x, y):
