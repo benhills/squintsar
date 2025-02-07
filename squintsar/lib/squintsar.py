@@ -8,9 +8,9 @@ Created on Mon Feb 7 2025
 
 import numpy as np
 from numpy.fft import fft, ifft
-from sar_geometry import get_depth_dist, sar_raybend
-from sar_functions import matched_filter
-from supplemental import r2p
+from .sar_geometry import get_depth_dist, sar_raybend
+from .sar_functions import matched_filter
+from .supplemental import r2p
 
 """
 """
@@ -83,24 +83,36 @@ def sar_compression(image_rc, C_ref, ind_max, ind0max, domain='time'):
     """
 
     """
-    # perform one correlation to determine the length of the output
-    tnum_ = np.correlate(image_rc[0], C_ref[0], mode='full').shape[0]
-    # initialize an expanded array
+    # number of range bins
     snum = np.shape(image_rc)[0]
-    image_rcac = np.zeros((snum, tnum_), dtype=np.complex128)
 
     # do the correlation (faster in frequency domain)
-    for si in range(snum):
-        if domain == 'time':
+    if domain == 'time':
+        # perform one correlation to determine the length of the output
+        tnum_ = np.correlate(image_rc[0], C_ref[0], mode='full').shape[0]
+        # initialize an expanded array
+        image_rcac = np.zeros((snum, tnum_), dtype=np.complex128)
+        # loop through all range bins
+        for si in range(snum):
+            # correlate measurements with the reference array
             image_rcac[si] = np.correlate(image_rc[si], C_ref[si], mode='full')
-        elif domain == 'freq':
-            C_ref_c = np.conjugate(C_ref[si]) # TODO: need to expand this array
-            N = -int(C_ref.shape[1]/2)
+        # crop down to the original size
+        image_rcac = image_rcac[:, ind_max:np.shape(image_rcac)[1]+ind0max]
+
+    elif domain == 'freq':
+        # output image shape is same as input image
+        tnum = np.shape(image_rc)[1]
+        image_rcac = np.zeros((snum, tnum))
+        # loop through all range bins
+        for si in range(snum):
+            # measurements in frequency domain
             image_fq = fft(image_rc[si])
+            # TODO: come back to this for deeper understanding
+            C_ref_c = np.zeros(tnum, dtype=np.complex128)
+            C_ref_c[:C_ref.shape[1]] = np.conjugate(C_ref[si])
+            N = -int(C_ref.shape[1]/2)
             C_ref_fq = fft(np.roll(C_ref_c, N))
+            # correlate in freqency space
             image_rcac[si] = ifft(image_fq*C_ref_fq)
 
-    # crop down to the original size
-    image_rcac_crop = image_rcac[:, ind_max:np.shape(image_rcac)[1]+ind0max]
-
-    return image_rcac_crop
+    return image_rcac
