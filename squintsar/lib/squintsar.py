@@ -9,11 +9,59 @@ Created on Mon Feb 7 2025
 import numpy as np
 from numpy.fft import fft, ifft
 from .sar_geometry import get_depth_dist, sar_raybend
-from .sar_functions import matched_filter
+from .sar_functions import matched_filter, squint2dc
 from .supplemental import r2p
 
 """
+This is...
+
+Please cite...
+
+Some additional articles for reference:
+Rodriguez
+Ferro
+Hei
 """
+
+def sar_compression(image_rc, C_ref, ind_max, ind0max, domain='time'):
+    """
+
+    """
+    # number of range bins
+    snum = np.shape(image_rc)[0]
+
+    # do the correlation (faster in frequency domain)
+    if domain == 'time':
+        # perform one correlation to determine the length of the output
+        tnum_ = np.correlate(image_rc[0], C_ref[0], mode='full').shape[0]
+        # initialize an expanded array
+        image_rcac = np.zeros((snum, tnum_), dtype=np.complex128)
+        # loop through all range bins
+        for si in range(snum):
+            # correlate measurements with the reference array
+            image_rcac[si] = np.correlate(image_rc[si], C_ref[si], mode='full')
+        # crop down to the original size
+        image_rcac = image_rcac[:, ind_max:np.shape(image_rcac)[1]+ind0max]
+
+    elif domain == 'freq':
+        # output image shape is same as input image
+        tnum = np.shape(image_rc)[1]
+        image_rcac = np.zeros((snum, tnum), dtype=np.complex128)
+        # loop through all range bins
+        for si in range(snum):
+            # measurements in frequency domain
+            image_fq = fft(image_rc[si])
+            # TODO: add range migration
+
+            # TODO: come back to this for deeper understanding
+            C_ref_c = np.zeros(tnum, dtype=np.complex128)
+            C_ref_c[-C_ref.shape[1]:] = np.conjugate(C_ref[si])
+            N = int(ind0max)  # int(C_ref.shape[1]/2)
+            C_ref_fq = fft(np.roll(C_ref_c, N))
+            # correlate in freqency space
+            image_rcac[si] = ifft(image_fq*C_ref_fq)
+
+    return image_rcac
 
 
 def sar_extent(t0, h, theta_sq, theta_beam=.1, dx=1):
@@ -43,7 +91,7 @@ def sar_extent(t0, h, theta_sq, theta_beam=.1, dx=1):
     return x_sa+x0, ind_start, ind_end
 
 
-def fill_reference_array(ft, h, theta_sq, theta_beam=0.1, dx=1, c=3e8):
+def fill_reference_array(ft, h, theta_sq, theta_beam=0.1, dx=1., c=3e8):
     """
 
     """
@@ -72,47 +120,53 @@ def fill_reference_array(ft, h, theta_sq, theta_beam=0.1, dx=1, c=3e8):
     return C_ref_all
 
 
-def range_migration():
+def find_freq_shift(tnum, theta_sq=0., v=0., dx=1.):
     """
 
     """
-    return
+
+    # determine the range of frequencies in the spectrogram
+    f_az_bw = v/dx
+    f = np.linspace(-f_az_bw/2., f_az_bw/2., tnum)
+
+    # find doppler frequency from squint angle
+    f_dc = squint2dc(theta_sq, v)
+
+    # calculate the ambiguity of each of the frequencies in the spectrogram
+    f_amb = f_az_bw * np.round((f_dc-f)/(v/dx))
+
+    # and add it to the frequency of each bin
+    return (f + f_amb)  #.astype(int)
 
 
-def sar_compression(image_rc, C_ref, ind_max, ind0max, domain='time'):
+def range_migration(image, fasttime, theta_sq=0., v=0., lam=0., dx=1.):
     """
 
     """
-    # number of range bins
-    snum = np.shape(image_rc)[0]
 
-    # do the correlation (faster in frequency domain)
-    if domain == 'time':
-        # perform one correlation to determine the length of the output
-        tnum_ = np.correlate(image_rc[0], C_ref[0], mode='full').shape[0]
-        # initialize an expanded array
-        image_rcac = np.zeros((snum, tnum_), dtype=np.complex128)
-        # loop through all range bins
-        for si in range(snum):
-            # correlate measurements with the reference array
-            image_rcac[si] = np.correlate(image_rc[si], C_ref[si], mode='full')
-        # crop down to the original size
-        image_rcac = image_rcac[:, ind_max:np.shape(image_rcac)[1]+ind0max]
+    # get expected frequency shifts (from doppler centroid)
+    f_image = find_freq_shift(theta_sq, len(fasttime),
+                              theta_sq=theta_sq, v=v, dx=dx)
 
-    elif domain == 'freq':
-        # output image shape is same as input image
-        tnum = np.shape(image_rc)[1]
-        image_rcac = np.zeros((snum, tnum))
-        # loop through all range bins
-        for si in range(snum):
-            # measurements in frequency domain
-            image_fq = fft(image_rc[si])
-            # TODO: come back to this for deeper understanding
-            C_ref_c = np.zeros(tnum, dtype=np.complex128)
-            C_ref_c[:C_ref.shape[1]] = np.conjugate(C_ref[si])
-            N = -int(C_ref.shape[1]/2)
-            C_ref_fq = fft(np.roll(C_ref_c, N))
-            # correlate in freqency space
-            image_rcac[si] = ifft(image_fq*C_ref_fq)
+    # range as a function of doppler frequency
+    r0 = fasttime/c*np.cos(theta_sq)
+    r_rm = (r0*(1.-lam**2*f_image**2/(4.*v**2))**(-.5)).astype(int)
+    # range to number of samples (to migrate)
+    dt = fasttime[1]-fasttime[0]
+    r_rm_n = np.round((r_rm-fasttime[0])/dt).astype(int)
 
-    return image_rcac
+    # frequency shift the image
+    image_shift = np.fft.fftshift(image)
+
+    # for each frequency, resample the data in range
+    snum, tnum = image.shape
+    image_mig = np.zeros((snum, tnum), dtype=np.complex128)
+    for si in range(snum):
+        for ti in range(tnum):
+            r_ind = r_rm_n[si, ti]
+            image_mig[si, ti] = image_shift[min(r_ind, snum-1), ti]
+
+    # undo the frequency shift
+    image_out = np.fft.fftshift(image_mig)
+
+    return image_out
