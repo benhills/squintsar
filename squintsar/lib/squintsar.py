@@ -8,9 +8,9 @@ Created on Mon Feb 7 2025
 
 import numpy as np
 from numpy.fft import fft, ifft
-from .sar_geometry import get_depth_dist, sar_raybend
-from .sar_functions import matched_filter, squint2dc
-from .supplemental import r2p
+from sar_geometry import get_depth_dist, sar_raybend
+from sar_functions import matched_filter, squint2dc
+from supplemental import r2p
 
 """
 This is...
@@ -18,10 +18,11 @@ This is...
 Please cite...
 
 Some additional articles for reference:
-Rodriguez
-Ferro
-Hei
+Rodriguez et al. (2009) https://api.semanticscholar.org/CorpusID:17738554
+Ferro (2019) https://doi.org/10.1080/01431161.2019.1573339
+Heister and Scheiber (2018) https://doi.org/10.5194/tc-12-2969-2018
 """
+
 
 def sar_compression(image_rc, C_ref, ind_max, ind0max, domain='time'):
     """
@@ -55,7 +56,9 @@ def sar_compression(image_rc, C_ref, ind_max, ind0max, domain='time'):
 
             # TODO: come back to this for deeper understanding
             C_ref_c = np.zeros(tnum, dtype=np.complex128)
-            C_ref_c[-C_ref.shape[1]:] = np.conjugate(C_ref[si])
+            # why was this flipped?
+            # C_ref_c[-C_ref.shape[1]:] = np.conjugate(C_ref[si])
+            C_ref_c[:C_ref.shape[1]] = np.conjugate(C_ref[si])
             N = int(ind0max)  # int(C_ref.shape[1]/2)
             C_ref_fq = fft(np.roll(C_ref_c, N))
             # correlate in freqency space
@@ -91,7 +94,8 @@ def sar_extent(t0, h, theta_sq, theta_beam=.1, dx=1):
     return x_sa+x0, ind_start, ind_end
 
 
-def fill_reference_array(ft, h, theta_sq, theta_beam=0.1, dx=1., c=3e8):
+def fill_reference_array(ft, h, theta_sq, theta_beam=0.1, dx=1.,
+                         fc=150e6, c=3e8):
     """
 
     """
@@ -109,11 +113,12 @@ def fill_reference_array(ft, h, theta_sq, theta_beam=0.1, dx=1., c=3e8):
     C_ref_all = np.zeros((len(ft), n_x_max+1), dtype=np.complex128)
     for si, ti in enumerate(ft):
         # get aperture extents
-        x, ind0, ind_ = sar_extent(ti, min(h, ti*c), theta_sq, theta_beam, dx=dx)
+        x, ind0, ind_ = sar_extent(ti, min(h, ti*c),
+                                   theta_sq, theta_beam, dx=dx)
 
         # calculate range and reference function
         r = sar_raybend(ti, min(h, ti*c), x, theta_sq)
-        C_ref = matched_filter(r2p(r))
+        C_ref = matched_filter(r2p(r, fc=fc))
         # place in oversized array
         C_ref_all[si, ind0-ind0max:ind_-ind0max+1] = C_ref
 
@@ -126,31 +131,31 @@ def find_freq_shift(tnum, theta_sq=0., v=0., dx=1.):
     """
 
     # determine the range of frequencies in the spectrogram
-    f_az_bw = v/dx
-    f = np.linspace(-f_az_bw/2., f_az_bw/2., tnum)
+    f_bw = v/dx
+    f = np.linspace(-f_bw/2., f_bw/2., tnum)
 
     # find doppler frequency from squint angle
     f_dc = squint2dc(theta_sq, v)
 
     # calculate the ambiguity of each of the frequencies in the spectrogram
-    f_amb = f_az_bw * np.round((f_dc-f)/(v/dx))
+    f_amb = f_bw * np.round((f_dc-f)/f_bw)
 
     # and add it to the frequency of each bin
-    return (f + f_amb)  #.astype(int)
+    return (f + f_amb)  # .astype(int)
 
 
-def range_migration(image, fasttime, theta_sq=0., v=0., lam=0., dx=1.):
+def range_migration(image, fasttime, theta_sq=0., v=0., lam=0., dx=1., c=3e8):
     """
 
     """
 
     # get expected frequency shifts (from doppler centroid)
-    f_image = find_freq_shift(theta_sq, len(fasttime),
-                              theta_sq=theta_sq, v=v, dx=dx)
+    f_doppler = find_freq_shift(np.shape(image)[1],
+                                theta_sq=theta_sq, v=v, dx=dx)
 
     # range as a function of doppler frequency
     r0 = fasttime/c*np.cos(theta_sq)
-    r_rm = (r0*(1.-lam**2*f_image**2/(4.*v**2))**(-.5)).astype(int)
+    r_rm = (r0*(1.-lam**2*f_doppler**2/(4.*v**2))**(-.5)).astype(int)
     # range to number of samples (to migrate)
     dt = fasttime[1]-fasttime[0]
     r_rm_n = np.round((r_rm-fasttime[0])/dt).astype(int)

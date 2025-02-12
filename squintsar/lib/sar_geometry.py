@@ -126,9 +126,9 @@ def get_range(x, h, d, s, n=n, c=3e8):
     """
 
     # propagation through air
-    r_air = np.sqrt(h**2.+(x-s)**2.) - h
+    r_air = np.sqrt(h**2.+(x-s)**2.)
     # propagation through ice
-    r_ice = np.sqrt(d**2.+s**2.) - d
+    r_ice = np.sqrt(d**2.+s**2.)
 
     return r_air/c + r_ice*n/c
 
