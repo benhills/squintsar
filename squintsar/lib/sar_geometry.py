@@ -167,3 +167,30 @@ def sar_raybend(t0, h, x, theta=0., n=n, c=3e8):
         r = get_range(x-x0, h, d, s)
 
     return r
+
+
+def sar_extent(t0, h, theta_sq, theta_beam=.1, dx=1):
+    """
+    Define the aperture extent based on the half beamwidth and squint angle.
+    Convert to index of the image array.
+    """
+
+    # for a given squint angle (theta) find the depth in ice
+    # and along-track distance (x) from center of aperture to target
+    d, x0 = get_depth_dist(t0, h, theta_sq)
+    # define the synthetic aperture extents
+    d_, x_start = get_depth_dist(t0, h, theta_sq+theta_beam/2.)
+    d_, x_end = get_depth_dist(t0, h, theta_sq-theta_beam/2.)
+
+    # TODO: explain this
+    x_start *= -1
+    x_end *= -1
+
+    # aperture extents (index)
+    ind_start = np.round(x_start/(dx)).astype(int)
+    ind_end = np.round(x_end/(dx)).astype(int)
+
+    # along-track distance for all points in the synthetic aperture
+    x_sa = np.linspace(x_start, x_end, (ind_end-ind_start)+1)
+
+    return x_sa+x0, ind_start, ind_end

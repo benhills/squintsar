@@ -7,6 +7,7 @@ Created on Mon Jan 24 2025
 """
 
 import numpy as np
+from pyproj import Proj
 
 """
 Supplemental functions for the squintsar processing library
@@ -38,15 +39,22 @@ def r2p(r, fc=150e6):
     return 4.*np.pi*fc*r
 
 
-def calc_dist(x, y):
+def calc_dist(long, lat, epsg='3031'):
     """
     Calculate along-track distance from x/y coordinates
 
     Parameters
     ----------
-    x:  float,  x position
-    y:  float,  y position
+    long:  float,  longitude
+    lat:  float,  latitude
+    epsg: str
     """
 
+    proj_stere = Proj('epsg:'+epsg)
+    x, y = proj_stere(long, lat)
+
     dist = np.cumsum(np.sqrt((np.diff(x))**2.+(np.diff(y))**2.))
-    return np.insert(dist, 0, 0.)
+    dist = np.insert(dist, 0, 0.)
+    dx = np.mean(np.gradient(dist))
+
+    return dist, dx

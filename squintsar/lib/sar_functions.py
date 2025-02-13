@@ -49,6 +49,25 @@ def squint2dc(theta_sq, v, fc=150e6, n=n, c=3e8):
     return f_dc
 
 
+def get_doppler_freq(tnum, theta_sq=0., v=0., dx=1.):
+    """
+
+    """
+
+    # determine the range of frequencies in the spectrogram
+    f_bw = v/dx
+    f = np.linspace(-f_bw/2., f_bw/2., tnum)
+
+    # find doppler frequency from squint angle
+    f_dc = squint2dc(theta_sq, v)
+
+    # calculate the ambiguity of each of the frequencies in the spectrogram
+    # and add it to the frequency of each bin
+    f_doppler = f + f_bw * np.round((f_dc-f)/f_bw)
+
+    return f_doppler
+
+
 def dc2squint(f_dc, r, h, n=n):
     """
     Get squint angle from doppler centroid
