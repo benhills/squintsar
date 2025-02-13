@@ -24,7 +24,9 @@ Heister and Scheiber (2018) https://doi.org/10.5194/tc-12-2969-2018
 """
 
 
-def sar_compression(image_rc, C_ref, ind_max, ind0max, domain='time'):
+def sar_compression(image_rc, C_ref, ind_max, ind0max, domain='time',
+                    rm_flag=False, ft=0., theta_sq=0., v=0., dx=1.,
+                    fc=150e6, c=3e8):
     """
 
     """
@@ -45,14 +47,18 @@ def sar_compression(image_rc, C_ref, ind_max, ind0max, domain='time'):
         image_rcac = image_rcac[:, ind_max:np.shape(image_rcac)[1]+ind0max]
 
     elif domain == 'freq':
+        # measurements to frequency domain
+        image_fq = fft(image_rc)
+        # TODO: add range migration
+        if rm_flag:
+            image_fq = range_migration(image_fq, ft,
+                                       theta_sq, v=v, dx=dx, fc=fc, c=c)
+
         # output image shape is same as input image
         tnum = np.shape(image_rc)[1]
         image_rcac = np.zeros((snum, tnum), dtype=np.complex128)
         # loop through all range bins
         for si in range(snum):
-            # measurements in frequency domain
-            image_fq = fft(image_rc[si])
-            # TODO: add range migration
 
             # TODO: come back to this for deeper understanding
             C_ref_c = np.zeros(tnum, dtype=np.complex128)
@@ -62,7 +68,7 @@ def sar_compression(image_rc, C_ref, ind_max, ind0max, domain='time'):
             N = int(ind0max)  # int(C_ref.shape[1]/2)
             C_ref_fq = fft(np.roll(C_ref_c, N))
             # correlate in freqency space
-            image_rcac[si] = ifft(image_fq*C_ref_fq)
+            image_rcac[si] = ifft(image_fq[si]*C_ref_fq)
 
     return image_rcac
 
@@ -144,7 +150,8 @@ def find_freq_shift(tnum, theta_sq=0., v=0., dx=1.):
     return (f + f_amb)  # .astype(int)
 
 
-def range_migration(image, fasttime, theta_sq=0., v=0., lam=0., dx=1., c=3e8):
+def range_migration(image, fasttime, theta_sq=0., v=0., lam=0.,
+                    dx=1., fc=150e6, c=3e8):
     """
 
     """
@@ -152,13 +159,16 @@ def range_migration(image, fasttime, theta_sq=0., v=0., lam=0., dx=1., c=3e8):
     # get expected frequency shifts (from doppler centroid)
     f_doppler = find_freq_shift(np.shape(image)[1],
                                 theta_sq=theta_sq, v=v, dx=dx)
-
     # range as a function of doppler frequency
-    r0 = fasttime/c*np.cos(theta_sq)
-    r_rm = (r0*(1.-lam**2*f_doppler**2/(4.*v**2))**(-.5)).astype(int)
-    # range to number of samples (to migrate)
-    dt = fasttime[1]-fasttime[0]
-    r_rm_n = np.round((r_rm-fasttime[0])/dt).astype(int)
+    r0 = fasttime*c*np.cos(theta_sq)
+    # grid the doppler frequencies with range
+    F, R = np.meshgrid(f_doppler, r0)
+
+    # range to migrate
+    r_rm = (R*(1.-c**2*F**2/(4.*fc**2.*v**2))**(-.5))
+    # convert to sample number
+    dr = (fasttime[1]-fasttime[0])*c
+    r_rm_n = np.round((r_rm-r0[0])/dr).astype(int)
 
     # frequency shift the image
     image_shift = np.fft.fftshift(image)
