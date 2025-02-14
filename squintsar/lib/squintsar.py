@@ -28,24 +28,27 @@ class squintsar():
         self.eps = 3.15
         self.n = np.sqrt(self.eps)
 
-    def sar_compression(self, ind_max, ind0max, rm_flag=False, theta_sq=0.):
+    def sar_compression(self, ind0max, rm_flag=False, theta_sq=0.):
         """
 
         """
 
         # measurements to frequency domain
-        self.data = fft(self.data)
+        image_fd = fft(self.image_rc)
 
         # range migration
         if rm_flag:
-            self.range_migration()
+            image_fd = self.range_migration(image_fd)
 
         # output image shape is same as input image
-        data_ac = np.zeros((self.snum, self.tnum), dtype=np.complex128)
+        self.image_ac = np.zeros((self.snum, self.tnum), dtype=np.complex128)
+        # reference array to be extended the full length of image
+        C_ref_c = np.zeros(self.tnum, dtype=np.complex128)
+
         # loop through all range bins
         for si in range(self.snum):
             # TODO: come back to this for deeper understanding
-            C_ref_c = np.zeros(self.tnum, dtype=np.complex128)
+            C_ref_c[:] = 0j
             # why was this flipped?
             # C_ref_c[-C_ref.shape[1]:] = np.conjugate(C_ref[si])
             C_ref_c[:self.C_ref.shape[1]] = np.conjugate(self.C_ref[si])
@@ -53,10 +56,10 @@ class squintsar():
             C_ref_fq = fft(np.roll(C_ref_c, N))
 
             # correlate in freqency space
-            data_ac[si] = self.data[si]*C_ref_fq
+            self.image_ac[si] = image_fd[si]*C_ref_fq
 
         # back to time domain
-        self.data = ifft(data_ac)
+        self.image_ac = ifft(self.image_ac)
 
         return
 
@@ -90,7 +93,7 @@ class squintsar():
 
         return
 
-    def range_migration(self, theta_sq=0.):
+    def range_migration(self, image, theta_sq=0.):
         """
 
         """
@@ -108,16 +111,14 @@ class squintsar():
         r_rm_n = np.round((r_rm-r0[0])/(self.dt*self.c)).astype(int)
 
         # frequency shift the image
-        self.data = np.fft.fftshift(self.data)
+        image_shift = np.fft.fftshift(image)
 
         # for each frequency, resample the data in range
         image_mig = np.zeros((self.snum, self.tnum), dtype=np.complex128)
         for si in range(self.snum):
             for ti in range(self.tnum):
                 r_ind = r_rm_n[si, ti]
-                image_mig[si, ti] = self.data[min(r_ind, self.snum-1), ti]
+                image_mig[si, ti] = image_shift[min(r_ind, self.snum-1), ti]
 
         # undo the frequency shift
-        self.data = np.fft.fftshift(image_mig)
-
-        return
+        return np.fft.fftshift(image_mig)
