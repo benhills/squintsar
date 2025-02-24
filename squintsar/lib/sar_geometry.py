@@ -173,6 +173,19 @@ def sar_extent(t0, h, theta_sq, theta_beam=.1, dx=1):
     """
     Define the aperture extent based on the half beamwidth and squint angle.
     Convert to index of the image array.
+
+    Parameters
+    ----------
+    t0: float,  measured range to target
+    h:  float, height of instrument above ice surface
+    theta_sq:  float, squint angle
+    theta_beam:  float, squint angle
+    dx:
+
+    Output
+    ----------
+    xs:     float,  along-track distances of illuminated beam
+    ind0:   int, integer index of the starting extent of beam
     """
 
     # for a given squint angle (theta) find the depth in ice
@@ -193,4 +206,4 @@ def sar_extent(t0, h, theta_sq, theta_beam=.1, dx=1):
     # along-track distance for all points in the synthetic aperture
     x_sa = np.linspace(x_start, x_end, (ind_end-ind_start)+1)
 
-    return x_sa+x0, ind_start, ind_end
+    return x_sa+x0, ind_start
