@@ -26,7 +26,7 @@ def load_cresis_range_compressed(self, fn, img=0):
     dat = loadmat(fn)
     # data image
     self.image_rc = np.squeeze(dat['data'][0][img])
-    self.snum, self.tnum = np.shape(self.data)
+    self.snum, self.tnum = np.shape(self.image_rc)
     # fast time
     self.ft = np.squeeze(dat['hdr'][0][0][13][0][img])
     self.dt = self.ft[1]-self.ft[0]

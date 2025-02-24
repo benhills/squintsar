@@ -8,12 +8,12 @@ Created on Mon Feb 7 2025
 
 import numpy as np
 from numpy.fft import fft, ifft
-from sar_geometry import get_depth_dist, sar_raybend, sar_extent
-from sar_functions import matched_filter, get_doppler_freq
-from supplemental import r2p
+from .sar_geometry import get_depth_dist, sar_raybend, sar_extent
+from .sar_functions import matched_filter, get_doppler_freq
+from .supplemental import r2p
 
 
-class squintsar():
+class sqsar():
     """
     Squinted SAR processing.
 
@@ -50,13 +50,16 @@ class squintsar():
 
         # range migration
         if rm_flag:
-            image_fd = self.range_migration(image_fd)
+            print('Migrating...')
+            image_fd = self.range_migration(image_fd, theta_sq=theta_sq)
+            print('migration finished.')
 
         # output image shape is same as input image
         self.image_ac = np.zeros((self.snum, self.tnum), dtype=np.complex128)
         # reference array to be extended the full length of image
         C_ref_c = np.zeros(self.tnum, dtype=np.complex128)
 
+        print('Compressing...')
         # loop through all range bins
         for si in range(self.snum):
             # TODO: come back to this for deeper understanding
@@ -64,11 +67,13 @@ class squintsar():
             # why was this flipped?
             # C_ref_c[-C_ref.shape[1]:] = np.conjugate(C_ref[si])
             C_ref_c[:self.C_ref.shape[1]] = np.conjugate(self.C_ref[si])
+            # TODO: something up with this roll value for negative squints
             N = int(ind0max)  # int(C_ref.shape[1]/2)
             C_ref_fq = fft(np.roll(C_ref_c, N))
 
             # correlate in freqency space
             self.image_ac[si] = image_fd[si]*C_ref_fq
+        print('compression finished.')
 
         # back to time domain
         self.image_ac = ifft(self.image_ac)
@@ -88,6 +93,10 @@ class squintsar():
         ----------
         C_ref:      complex, reference function to be used for compression
         """
+        # TODO: I think this function is too complicated
+        # TODO: since I switched to freq domain only
+        print('Filling the reference array...')
+
         # get the geometry
         d, x0 = get_depth_dist(max(self.ft), h, theta_sq)
         # extent of array to be filled based on geometry
@@ -115,6 +124,8 @@ class squintsar():
             # place in oversized array
             self.C_ref[si, ind0-ind0max:ind_-ind0max+1] = C_
 
+        print('reference array filled.')
+
         return
 
     def range_migration(self, image, theta_sq=0.):
@@ -132,16 +143,18 @@ class squintsar():
         image_mig:   complex, migrated image
         """
         # get expected frequency shifts (from doppler centroid)
-        f_doppler = get_doppler_freq(self.tnum, theta_sq, self.v, self.dx)
+        f_doppler = get_doppler_freq(self.tnum, theta_sq, self.v, self.dx,
+                                     self.fc, self.n, self.c)
         # range as a function of doppler frequency
-        r0 = self.ft*self.c*np.cos(theta_sq)
+        r0 = self.ft*(self.c/self.n)  # *np.cos(theta_sq) not migrating enough? TODO
         # grid the doppler frequencies with range
         F, R = np.meshgrid(f_doppler, r0)
 
-        # range to migrate
-        r_rm = (R*(1.-self.c**2*F**2/(4.*self.fc**2.*self.v**2))**(-.5))
+        # range to migrate TODO: still approximating ray bending
+        lam = self.c/(self.fc*self.n)
+        r_rm = (R*(1.-lam**2*F**2/(4.*self.v**2))**(-.5))
         # convert to sample number
-        r_rm_n = np.round((r_rm-r0[0])/(self.dt*self.c)).astype(int)
+        r_rm_n = np.round((r_rm-r0[0])/(self.dt*self.c/self.n)).astype(int)
 
         # frequency shift the image
         image_shift = np.fft.fftshift(image)

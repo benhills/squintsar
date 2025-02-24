@@ -22,11 +22,10 @@ def dB(P):
     ----------
     P:  float,  power
     """
-
     return 10.*np.log10(P)
 
 
-def r2p(r, fc=150e6):
+def r2p(r, fc=190e6):
     """
     Convert range to phase
 
@@ -34,7 +33,6 @@ def r2p(r, fc=150e6):
     ----------
     r:  float,  range
     """
-
     # phase
     return 4.*np.pi*fc*r
 
@@ -49,7 +47,6 @@ def calc_dist(long, lat, epsg='3031'):
     lat:  float,  latitude
     epsg: str
     """
-
     proj_stere = Proj('epsg:'+epsg)
     x, y = proj_stere(long, lat)
 
