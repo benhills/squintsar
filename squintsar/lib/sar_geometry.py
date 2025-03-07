@@ -159,7 +159,7 @@ def sar_raybend(t0, h, x, theta=0., n=n, c=3e8):
 
     # reference function placed consistently in the oversized array
     if d < 0:  # for returns above the ice surface
-        r = (np.sqrt(h**2.+(x-x0)**2.)-h)/c
+        r = np.sqrt(h**2.+(x-x0)**2.)/c
     else:
         # small offsets to the squint angle within the aperture
         s = get_refraction_point(x-x0, h, d)

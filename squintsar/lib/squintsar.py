@@ -28,7 +28,7 @@ class sqsar():
         self.eps = 3.15     # permittivity
         self.n = np.sqrt(self.eps)  # index of refraction
 
-    def sar_compression(self, ind0max, rm_flag=False, theta_sq=0.):
+    def sar_compression(self, ind0max, mig_flag=False, theta_sq=0.):
         """
         Image compression in the along-track (azimuth) dimension.
         Done in frequency domain.
@@ -49,9 +49,9 @@ class sqsar():
         image_fd = fft(self.image_rc)
 
         # range migration
-        if rm_flag:
+        if mig_flag:
             print('Migrating...')
-            image_fd = self.range_migration(image_fd, theta_sq=theta_sq)
+            image_fd = self.range_migration(image_fd, theta_sq)
             print('migration finished.')
 
         # output image shape is same as input image
@@ -80,7 +80,7 @@ class sqsar():
 
         return
 
-    def fill_reference_array(self, h, theta_sq):
+    def fill_reference_array(self, h, theta_sq, raybend_flag=True):
         """
         Fill an array with reference functions for each range bin.
 
@@ -119,7 +119,11 @@ class sqsar():
             x, ind0, ind_ = sar_extent(ti, min(h, ti*self.c), theta_sq,
                                        self.theta_beam, self.dx)
             # calculate range and reference function
-            r = sar_raybend(ti, min(h, ti*self.c), x, theta_sq)
+            if raybend_flag:
+                r = sar_raybend(ti, min(h, ti*self.c), x, theta_sq)
+            else:
+                r0 = ti*self.c*np.cos(self.theta_sq)
+                r = np.sqrt(r0**2.+(x-x0)**2.)/self.c
             C_ = matched_filter(r2p(r, fc=self.fc))
             # place in oversized array
             self.C_ref[si, ind0-ind0max:ind_-ind0max+1] = C_
@@ -154,7 +158,7 @@ class sqsar():
         lam = self.c/(self.fc*self.n)
         r_rm = (R*(1.-lam**2*F**2/(4.*self.v**2))**(-.5))
         # convert to sample number
-        r_rm_n = np.round((r_rm-r0[0])/(self.dt*self.c/self.n)).astype(int)
+        r_rm_n = np.round((r_rm-self.ft[0]*self.c)/(self.dt*self.c)).astype(int) # TODO needs an 'n' on the bottom?
 
         # frequency shift the image
         image_shift = np.fft.fftshift(image)

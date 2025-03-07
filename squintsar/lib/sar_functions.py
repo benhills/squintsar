@@ -68,7 +68,7 @@ def get_doppler_freq(tnum, theta_sq=0., v=100., dx=1.,
     f = np.linspace(-f_bw/2., f_bw/2., tnum)
 
     # find doppler centroid from squint angle
-    f_dc = squint2dc(theta_sq, v, )
+    f_dc = squint2dc(theta_sq, v, fc, n, c)
 
     # find frequencies shift from squint
     # and add it to the frequency array
