@@ -95,6 +95,7 @@ class sqsar():
         """
         # TODO: I think this function is too complicated
         # TODO: since I switched to freq domain only
+        # TODO: break it out like CReSIS toolbox does
         print('Filling the reference array...')
 
         # get the geometry
@@ -150,15 +151,16 @@ class sqsar():
         f_doppler = get_doppler_freq(self.tnum, theta_sq, self.v, self.dx,
                                      self.fc, self.n, self.c)
         # range as a function of doppler frequency
-        r0 = self.ft*(self.c/self.n)  # *np.cos(theta_sq) not migrating enough? TODO
-        # grid the doppler frequencies with range
-        F, R = np.meshgrid(f_doppler, r0)
+        #r0 = self.ft #*(self.c/self.n)  # *np.cos(theta_sq) not migrating enough? TODO
+        # grid the doppler frequencies with fast time
+        FQ, FT = np.meshgrid(f_doppler, self.ft)
 
-        # range to migrate TODO: still approximating ray bending
+        # wavelength
         lam = self.c/(self.fc*self.n)
-        r_rm = (R*(1.-lam**2*F**2/(4.*self.v**2))**(-.5))
+        # range to migrate TODO: still approximating ray bending
+        ft_rm = (FT*(1.-lam**2*FQ**2/(4.*self.v**2))**(-.5))
         # convert to sample number
-        r_rm_n = np.round((r_rm-self.ft[0]*self.c)/(self.dt*self.c)).astype(int) # TODO needs an 'n' on the bottom?
+        ft_rm_n = np.round((ft_rm-self.ft[0])/(self.dt)).astype(int) # TODO needs an 'n' on the bottom?
 
         # frequency shift the image
         image_shift = np.fft.fftshift(image)
