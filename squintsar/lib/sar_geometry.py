@@ -133,7 +133,7 @@ def get_range(x, h, d, s, n=n, c=3e8):
     return r_air/c + r_ice*n/c
 
 
-def sar_raybend(t0, h, x, theta=0., n=n, c=3e8):
+def sar_raybend(t0, h, x, theta=0., n=n, c=3e8, approximate=True):
     """
     Ray bending for sounding in two mediums.
     Calculate the SAR range offset across the full aperture.
@@ -161,10 +161,14 @@ def sar_raybend(t0, h, x, theta=0., n=n, c=3e8):
     if d < 0:  # for returns above the ice surface
         r = np.sqrt(h**2.+(x-x0)**2.)/c
     else:
-        # small offsets to the squint angle within the aperture
-        s = get_refraction_point(x-x0, h, d)
-        # range within aperture
-        r = get_range(x-x0, h, d, s)
+        if approximate:
+            # Rodriguez equation 6
+            r = (h+d/n)*np.tan(theta)
+        else:
+            # small offsets to the squint angle within the aperture
+            s = get_refraction_point(x-x0, h, d)
+            # range within aperture
+            r = get_range(x-x0, h, d, s)
 
     return r
 
