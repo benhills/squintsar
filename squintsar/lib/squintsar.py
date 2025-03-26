@@ -4,6 +4,13 @@
 Created on Mon Feb 7 2025
 
 @author: benhills
+
+Squinted SAR processing.
+
+Some additional articles for reference:
+Rodriguez et al. (2009) https://api.semanticscholar.org/CorpusID:17738554
+Ferro (2019) https://doi.org/10.1080/01431161.2019.1573339
+Heister and Scheiber (2018) https://doi.org/10.5194/tc-12-2969-2018
 """
 
 import numpy as np
@@ -13,45 +20,31 @@ from .sar_functions import matched_filter, get_doppler_freq
 from .supplemental import r2p
 
 
-class sqsar():
+
+def sar_compression(self, h, mig_flag=False, hann_flag=True, theta_sq=0.):
     """
-    Squinted SAR processing.
+    Image compression in the along-track (azimuth) dimension.
+    Done in frequency domain.
+    Includes range migration if flag is set to True.
 
-    Some additional articles for reference:
-    Rodriguez et al. (2009) https://api.semanticscholar.org/CorpusID:17738554
-    Ferro (2019) https://doi.org/10.1080/01431161.2019.1573339
-    Heister and Scheiber (2018) https://doi.org/10.5194/tc-12-2969-2018
+    Parameters
+    ----------
+    h:          float, height of instrument platform above ice surface
+    rm_flag:    bool, flag for range migration
+    theta_sq:   float, squint angle
+
+    Output
+    ----------
+    image_ac:   complex, along-track compressed image
     """
+    # measurements to frequency domain
+    image_fd = fft(self.image_rc)
 
-    def __init__(self):
-        self.c = 3e8        # free space wave speed
-        self.eps = 3.15     # permittivity
-        self.n = np.sqrt(self.eps)  # index of refraction
-
-    def sar_compression(self, h, mig_flag=False, hann_flag=True, theta_sq=0.):
-        """
-        Image compression in the along-track (azimuth) dimension.
-        Done in frequency domain.
-        Includes range migration if flag is set to True.
-
-        Parameters
-        ----------
-        h:          float, height of instrument platform above ice surface
-        rm_flag:    bool, flag for range migration
-        theta_sq:   float, squint angle
-
-        Output
-        ----------
-        image_ac:   complex, along-track compressed image
-        """
-        # measurements to frequency domain
-        image_fd = fft(self.image_rc)
-
-        # range migration
-        if mig_flag:
-            print('Migrating...')
-            image_fd = self.range_migration(image_fd, h, theta_sq)
-            print('migration finished.')
+    # range migration
+    if mig_flag:
+        print('Migrating...')
+        image_fd = self.range_migration(image_fd, theta_sq)
+        print('migration finished.')
 
         # output image shape is same as input image
         self.image_ac = np.zeros((self.snum, self.tnum), dtype=np.complex128)
@@ -68,11 +61,6 @@ class sqsar():
             # calculate range and reference function
             r = sar_raybend(ti, min(h, ti*self.c), x, theta_sq)
             C_ref = matched_filter(r2p(r, fc=self.fc))
-            if hann_flag:
-                C_ref *= np.hanning(len(C_ref))
-            # place in the full array and roll to center it on low freq
-            C_ref_c[:len(C_ref)] = np.conjugate(C_ref)
-            C_ref_fq = fft(np.roll(C_ref_c, ind0))
 
             # correlate in freqency space
             self.image_ac[si] = image_fd[si]*C_ref_fq
@@ -81,22 +69,29 @@ class sqsar():
         # back to time domain
         self.image_ac = ifft(self.image_ac)
 
-        return
+    return
 
-    def range_migration(self, image, h, theta_sq=0.):
-        """
-        Range migration set by the expected Doppler frequencies
-        calculated with the prescribed squint angle.
 
-        Parameters
-        ----------
-        image:      complex, input image to be migrated
-        theta_sq:   float, squint angle
+def range_migration(self, image, theta_sq=0.):
+    """
+    Range migration set by the expected Doppler frequencies
+    calculated with the prescribed squint angle.
 
-        Output
-        ----------
-        image_mig:   complex, migrated image
-        """
+    Parameters
+    ----------
+    image:      complex, input image to be migrated
+    theta_sq:   float, squint angle
+
+    Output
+    ----------
+    image_mig:   complex, migrated image
+    """
+
+    for si in range(self.snum):
+        for ti in range(self.tnum):
+            r_ind = r_rm_n[si, ti]
+            image_mig[si, ti] = image_shift[min(r_ind, self.snum-1), ti]
+
         # range to migrate
         ft_rm = np.zeros_like(self.image_rc).astype(float)
         for i in range(0, self.snum):
@@ -117,20 +112,7 @@ class sqsar():
                         (1.-(h**2./ra**2.) -
                          lam**2*f_doppler**2/(4.*self.v**2)))**(-.5)
                 ft_rm[i] = (ra+ri*self.n)/self.c*np.cos(theta_sq)
-        """
-        # get expected frequency shifts (from doppler centroid)
-        f_doppler = get_doppler_freq(self.tnum, theta_sq, self.v, self.dx,
-                                     self.fc, self.n, self.c)
-        # grid the doppler frequencies with fast time
-        FQ, FT = np.meshgrid(f_doppler, self.ft)
 
-        # wavelength
-        lam = self.c/(self.fc*self.n)
-        # range to migrate
-        # TODO: fill in a loop
-        ft_rm = (FT) * \
-                (1.-lam**2*FQ**2/(4.*self.v**2))**(-.5)
-        """
         # convert to sample number
         ft_rm_n = np.round((ft_rm-self.ft[0])/(self.dt)).astype(int)
         # ft_rm_n = np.transpose(np.transpose(ft_rm_n) +
