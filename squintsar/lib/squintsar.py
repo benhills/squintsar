@@ -28,7 +28,7 @@ class sqsar():
         self.eps = 3.15     # permittivity
         self.n = np.sqrt(self.eps)  # index of refraction
 
-    def sar_compression(self, h, mig_flag=False, theta_sq=0.):
+    def sar_compression(self, h, mig_flag=False, hann_flag=True, theta_sq=0.):
         """
         Image compression in the along-track (azimuth) dimension.
         Done in frequency domain.
@@ -68,6 +68,8 @@ class sqsar():
             # calculate range and reference function
             r = sar_raybend(ti, min(h, ti*self.c), x, theta_sq)
             C_ref = matched_filter(r2p(r, fc=self.fc))
+            if hann_flag:
+                C_ref *= np.hanning(len(C_ref))
 
             C_ref_c[:len(C_ref)] = np.conjugate(C_ref)
             # TODO: something up with this roll value for negative squints
@@ -110,7 +112,8 @@ class sqsar():
         # range to migrate TODO: still approximating ray bending
         ft_rm = (FT*(1.-lam**2*FQ**2/(4.*self.v**2))**(-.5))
         # convert to sample number
-        ft_rm_n = np.round((ft_rm-self.ft[0])/(self.dt)).astype(int) # TODO needs an 'n' on the bottom?
+        # TODO needs an 'n' on the bottom?
+        ft_rm_n = np.round((ft_rm-self.ft[0])/(self.dt)).astype(int)
 
         # frequency shift the image
         image_shift = np.fft.fftshift(image)
@@ -119,8 +122,8 @@ class sqsar():
         image_mig = np.zeros((self.snum, self.tnum), dtype=np.complex128)
         for si in range(self.snum):
             for ti in range(self.tnum):
-                r_ind = r_rm_n[si, ti]
-                image_mig[si, ti] = image_shift[min(r_ind, self.snum-1), ti]
+                ft_ind = ft_rm_n[si, ti]
+                image_mig[si, ti] = image_shift[min(ft_ind, self.snum-1), ti]
 
         # undo the frequency shift
         return np.fft.fftshift(image_mig)
