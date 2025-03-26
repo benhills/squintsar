@@ -7,6 +7,7 @@ Created on Wed Feb 12 2025
 """
 
 import numpy as np
+import xarray as xr
 from scipy.io import loadmat
 
 """
@@ -14,7 +15,7 @@ Load functions for the squintsar processing library
 """
 
 
-def load_cresis_range_compressed(self, fn, img=0):
+def load_cresis_range_compressed(fn, img=0, dset=None, c=3e8, eps=3.15):
     """
     Load data from cresis matlab file
 
@@ -25,16 +26,31 @@ def load_cresis_range_compressed(self, fn, img=0):
     """
     dat = loadmat(fn)
     # data image
-    self.image_rc = np.squeeze(dat['data'][0][img])
-    self.snum, self.tnum = np.shape(self.image_rc)
+    image = np.squeeze(dat['data'][0][img])
     # fast time
-    self.ft = np.squeeze(dat['hdr'][0][0][13][0][img])
-    self.dt = self.ft[1]-self.ft[0]
+    fasttime = np.squeeze(dat['hdr'][0][0][13][0][img])
+    dt = fasttime[1]-fasttime[0]
     # slow time
     slowtime = np.squeeze(dat['hdr']['gps_time'][0][0])
-    self.st = slowtime - slowtime[0]
+    slowtime -= slowtime[0]
     # geolocation
-    self.lat = dat['hdr']['records'][0][0][img][0][0][0][7]
-    self.long = dat['hdr']['records'][0][0][img][0][0][0][8]
+    lat = np.squeeze(dat['hdr']['records'][0][0][img][0][0][0][7])
+    lon = np.squeeze(dat['hdr']['records'][0][0][img][0][0][0][8])
 
-    return
+    # output as an xarray object
+    if dset is None:
+        dset = xr.Dataset({'image_pc': (['fasttime', 'slowtime'], image)},
+                          coords={'fasttime': fasttime, 'slowtime': slowtime,
+                                  'lon': ('slowtime', lon),
+                                  'lat': ('slowtime', lat)},
+                          attrs={'dt': dt,
+                                 'c': c,        # free-space wave speed
+                                 'eps': eps,    # permittivity
+                                 'n': np.sqrt(eps)})
+
+    # TODO: ad an option where the dataset already exists
+    # but we want to load another DataArray
+    # else:
+    #    dset
+
+    return dset
