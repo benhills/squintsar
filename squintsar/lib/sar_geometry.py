@@ -85,8 +85,8 @@ def get_refraction_point(x, h, d, n=n):
 
     if not hasattr(x, '__len__'):
         x = np.array([x])
-
     s = np.empty_like(x)
+
     for i, xi in enumerate(x):
         a4 = n**2.-1.
         a3 = -2*a4*xi
@@ -157,18 +157,16 @@ def sar_raybend(t0, h, x, theta=0., n=n, c=3e8, approximate=True):
     # and along-track distance (x) from center of aperture to target
     d, x0 = get_depth_dist(t0, h, theta)
 
-    # reference function placed consistently in the oversized array
     if d < 0:  # for returns above the ice surface
         r = np.sqrt(h**2.+(x-x0)**2.)/c
     else:
+        # get the refraction point
         if approximate:
-            # Rodriguez equation 6
-            r = (h+d/n)*np.tan(theta)
+            s = (x-x0)/(h*n/d+1)
         else:
-            # small offsets to the squint angle within the aperture
-            s = get_refraction_point(x-x0, h, d)
-            # range within aperture
-            r = get_range(x-x0, h, d, s)
+            s = get_refraction_point(x-x0, h, d, n)
+        # range within aperture
+        r = get_range(x-x0, h, d, s)
 
     return r
 
@@ -196,12 +194,8 @@ def sar_extent(t0, h, theta_sq, theta_beam=.1, dx=1):
     # and along-track distance (x) from center of aperture to target
     d, x0 = get_depth_dist(t0, h, theta_sq)
     # define the synthetic aperture extents
-    d_, x_start = get_depth_dist(t0, h, theta_sq+theta_beam/2.)
-    d_, x_end = get_depth_dist(t0, h, theta_sq-theta_beam/2.)
-
-    # TODO: explain this
-    x_start *= -1
-    x_end *= -1
+    d_, x_start = get_depth_dist(t0, h, theta_sq-theta_beam/2.)
+    d_, x_end = get_depth_dist(t0, h, theta_sq+theta_beam/2.)
 
     # aperture extents (index)
     ind_start = np.round(x_start/(dx)).astype(int)

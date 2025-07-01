@@ -8,7 +8,7 @@ Created on Mon Feb 7 2025
 
 import numpy as np
 from numpy.fft import fft, ifft
-from .sar_geometry import sar_raybend, sar_extent
+from .sar_geometry import sar_raybend, sar_extent, get_depth_dist
 from .sar_functions import matched_filter, get_doppler_freq
 from .supplemental import r2p
 
@@ -50,7 +50,7 @@ class sqsar():
         # range migration
         if mig_flag:
             print('Migrating...')
-            image_fd = self.range_migration(image_fd, theta_sq)
+            image_fd = self.range_migration(image_fd, h, theta_sq)
             print('migration finished.')
 
         # output image shape is same as input image
@@ -70,10 +70,8 @@ class sqsar():
             C_ref = matched_filter(r2p(r, fc=self.fc))
             if hann_flag:
                 C_ref *= np.hanning(len(C_ref))
-
+            # place in the full array and roll to center it on low freq
             C_ref_c[:len(C_ref)] = np.conjugate(C_ref)
-            # TODO: something up with this roll value for negative squints
-            # TODO: Rosen had it centered always where roll = len(C_ref)/2
             C_ref_fq = fft(np.roll(C_ref_c, ind0))
 
             # correlate in freqency space
@@ -85,7 +83,7 @@ class sqsar():
 
         return
 
-    def range_migration(self, image, theta_sq=0.):
+    def range_migration(self, image, h, theta_sq=0.):
         """
         Range migration set by the expected Doppler frequencies
         calculated with the prescribed squint angle.
@@ -99,21 +97,45 @@ class sqsar():
         ----------
         image_mig:   complex, migrated image
         """
+        # range to migrate
+        ft_rm = np.zeros_like(self.image_rc).astype(float)
+        for i in range(0, self.snum):
+            ti = self.ft[i]
+            if ti < h/self.c:
+                lam = self.c/(self.fc)
+                f_doppler = get_doppler_freq(self.tnum, theta_sq, self.v,
+                                             self.dx, self.fc, 1., self.c)
+                ft0 = ti*np.cos(theta_sq)
+                ft_rm[i] = ft0*(1.-lam**2*f_doppler**2/(4.*self.v**2))**(-.5)
+            else:
+                lam = self.c/(self.fc*self.n)
+                f_doppler = get_doppler_freq(self.tnum, theta_sq, self.v,
+                                             self.dx, self.fc, self.n, self.c)
+                ra = h/np.cos(theta_sq)
+                d, x0 = get_depth_dist(ti, h, theta_sq, n=self.n, c=self.c)
+                ri = d*(1.+(1./self.n) *
+                        (1.-(h**2./ra**2.) -
+                         lam**2*f_doppler**2/(4.*self.v**2)))**(-.5)
+                ft_rm[i] = (ra+ri*self.n)/self.c*np.cos(theta_sq)
+        """
         # get expected frequency shifts (from doppler centroid)
         f_doppler = get_doppler_freq(self.tnum, theta_sq, self.v, self.dx,
                                      self.fc, self.n, self.c)
-        # range as a function of doppler frequency
-        #r0 = self.ft #*(self.c/self.n)  # *np.cos(theta_sq) not migrating enough? TODO
         # grid the doppler frequencies with fast time
         FQ, FT = np.meshgrid(f_doppler, self.ft)
 
         # wavelength
         lam = self.c/(self.fc*self.n)
-        # range to migrate TODO: still approximating ray bending
-        ft_rm = (FT*(1.-lam**2*FQ**2/(4.*self.v**2))**(-.5))
+        # range to migrate
+        # TODO: fill in a loop
+        ft_rm = (FT) * \
+                (1.-lam**2*FQ**2/(4.*self.v**2))**(-.5)
+        """
         # convert to sample number
-        # TODO needs an 'n' on the bottom?
         ft_rm_n = np.round((ft_rm-self.ft[0])/(self.dt)).astype(int)
+        # ft_rm_n = np.transpose(np.transpose(ft_rm_n) +
+        #                       (1.-np.cos(theta_sq)) *
+        #                       np.arange(np.shape(ft_rm_n)[0])).astype(int)
 
         # frequency shift the image
         image_shift = np.fft.fftshift(image)
@@ -123,7 +145,8 @@ class sqsar():
         for si in range(self.snum):
             for ti in range(self.tnum):
                 ft_ind = ft_rm_n[si, ti]
-                image_mig[si, ti] = image_shift[min(ft_ind, self.snum-1), ti]
+                image_mig[si, ti] = image_shift[max(min(ft_ind,
+                                                        self.snum-1), 0), ti]
 
         # undo the frequency shift
         return np.fft.fftshift(image_mig)

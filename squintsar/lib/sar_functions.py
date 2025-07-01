@@ -40,8 +40,8 @@ def squint2dc(theta_sq, v, fc=190e6, n=1.775, c=3e8):
     ----------
     f_dc:      float, frequency at Doppler centroid
     """
-    # TODO: this is an approximation for ray bending, revisit
-    f_dc = 2.*fc/c * v * np.sin(snell(theta_sq, n))
+    lam = c/(fc)
+    f_dc = 2. * v * np.sin(snell(theta_sq, n))/lam
 
     return f_dc
 
@@ -90,11 +90,9 @@ def dc2squint(f_dc, v, fc=190e6, n=1.775, c=3e8):
     ----------
     theta_sq:   float, squint angle
     """
-    # TODO: this is an approximation for ray bending, revisit
     theta = np.arcsin(f_dc*c/(2.*v*fc))
     # inverse of snells law
     return snell(theta, 1./n)
-
 
 def data2dc(image, v, dx=1.,
             fc=190e6, c=3e8):
