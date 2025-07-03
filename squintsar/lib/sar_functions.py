@@ -94,6 +94,7 @@ def dc2squint(f_dc, v, fc=190e6, n=1.775, c=3e8):
     # inverse of snells law
     return snell(theta, 1./n)
 
+
 def data2dc(image, v, dx=1.,
             fc=190e6, c=3e8):
     """
