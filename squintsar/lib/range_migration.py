@@ -12,7 +12,7 @@ from .sar_geometry import get_depth_dist
 from .sar_functions import get_doppler_freq
 
 
-def rm_main(dat, image, theta_sq):
+def rm_main(dat, image, theta_sq=0):
     """
     Range migration set by the expected Doppler frequencies
     calculated with the prescribed squint angle.
@@ -27,18 +27,14 @@ def rm_main(dat, image, theta_sq):
     image_mig:   complex, migrated image
     """
 
-    ft_rm = rm_find_range(dat, image, theta_sq)
-
-    # convert to sample number
-    rm_sample = np.round((ft_rm-dat.fasttime[0].data)/(dat.dt)).astype(int)
-    # ft_rm_n = np.transpose(np.transpose(ft_rm_n) +
-    #                       (1.-np.cos(theta_sq)) *
-    #                       np.arange(np.shape(ft_rm_n)[0])).astype(int)
+    # Determine the range to migrate
+    ft_rm = rm_find_range(dat, theta_sq)
 
     # frequency shift the image
-    image_shift = np.fft.fftshift(image, axes=1)
+    image_shift = fftshift(image, axes=1)
 
-    image_shift_mig = rm_resample(dat, image_shift, rm_sample)
+    # resample the data array onto the migrated sample numbers
+    image_shift_mig = rm_resample(dat, image_shift, ft_rm)
 
     # undo the frequency shift
     image_mig = fftshift(image_shift_mig, axes=1)
@@ -46,26 +42,31 @@ def rm_main(dat, image, theta_sq):
     return image_mig
 
 
-def rm_find_range(dat, image, theta_sq):
+def rm_find_range(dat, theta_sq):
     """
     ### Determine range to migrate ###
     """
 
     # empty array to fill
-    ft_rm = np.zeros_like(image).astype(float)
-    for i in range(0, dat.snum):
-        ti = dat.fasttime[i].data
+    ft_rm = np.zeros((dat.snum, dat.tnum)).astype(float)
+
+    for i, ti in enumerate(dat.fasttime.data):
+        # sample from above the ice surface
         if ti < dat.h/dat.c:
-            lam = dat.c/(dat.fc)
-            f_doppler = get_doppler_freq(dat.tnum, theta_sq, dat.avg_vel,
-                                         dat.dx, dat.fc, 1., dat.c)
+            if i == 0:
+                lam = dat.c/(dat.fc)
+                f_doppler = get_doppler_freq(dat.tnum, theta_sq, dat.avg_vel,
+                                             dat.dx, dat.fc, 1., dat.c)
+                ra = None
             ft0 = ti*np.cos(theta_sq)
             ft_rm[i] = ft0*(1.-lam**2*f_doppler**2/(4.*dat.avg_vel**2))**(-.5)
+        # sample from below the ice surface
         else:
-            lam = dat.c/(dat.fc*dat.n)
-            f_doppler = get_doppler_freq(dat.tnum, theta_sq, dat.avg_vel,
-                                         dat.dx, dat.fc, dat.n, dat.c)
-            ra = dat.h/np.cos(theta_sq)
+            if ra is None:
+                lam = dat.c/(dat.fc*dat.n)
+                f_doppler = get_doppler_freq(dat.tnum, theta_sq, dat.avg_vel,
+                                             dat.dx, dat.fc, dat.n, dat.c)
+                ra = dat.h/np.cos(theta_sq)
             d, x0 = get_depth_dist(ti, dat.h, theta_sq, n=dat.n, c=dat.c)
             ri = d*(1.+(1./dat.n) *
                     (1.-(dat.h**2./ra**2.) -
@@ -75,13 +76,11 @@ def rm_find_range(dat, image, theta_sq):
     return ft_rm
 
 
-def rm_resample(dat, image_shift, rm_sample):
-    snum = dat.snum
-    # for each frequency, resample the data in range
-    image_shift_mig = np.zeros((dat.snum, dat.tnum), dtype=np.complex128)
-    for si in range(dat.snum):
-        for ti in range(dat.tnum):
-            ft_ind = rm_sample[si, ti]
-            image_shift_mig[si, ti] = image_shift[min(ft_ind, snum-1), ti]
-
-    return image_shift_mig
+def rm_resample(dat, image_shift, ft_rm):
+    # convert to sample number and limit at total number of samples
+    rm_sample = np.round((ft_rm-dat.fasttime[0].data)/(dat.dt)).astype(int)
+    rm_sample[rm_sample > dat.snum-1] = dat.snum-1
+    # tile trace numbers into an array
+    rm_trace = np.tile(np.arange(dat.tnum), (dat.snum, 1))
+    # resample the shifted image at the given indices
+    return image_shift[rm_sample, rm_trace]
