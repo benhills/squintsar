@@ -7,119 +7,117 @@ Created on Mon Jan 24 2025
 """
 
 import numpy as np
-from scipy.signal import periodogram
-from .sar_geometry import snell
+from numpy.fft import fft
+from .sar_geometry import sar_raybend
+from .supplemental import r2p
 
 
-def matched_filter(phi):
+def reshape_on_aperture(dat, N_aperture):
     """
-    Phase to complex number for matched filter in along-track compression
+    Reshapes a dataset along the aperture dimension for SAR processing.
 
-    Parameters
-    ----------
-    phi:    float, phase
+    Parameters:
+    -----------
+    dat : xarray.Dataset
+        The input dataset containing SAR data. It is expected to have variables such as 
+        'image_fd_mig' or 'image_fd' for frequency domain data, and dimensions like 
+        'fasttime' and 'slowtime'.
+    N_aperture : int or None
+        The number of traces in an aperture. If None, it defaults to `dat.tnum`.
 
-    Output
-    ----------
-    C:      complex, matched filter
+    Returns:
+    --------
+    xarray.Dataset
+        The reshaped dataset with dimensions adjusted for aperture processing. The dataset 
+        will have the following modifications:
+        - Frequency domain variables ('image_fd_mig', 'image_fd') are dropped or converted 
+          back to the time domain.
+        - The 'slowtime' dimension is coarsened and split into 'alongtrack' and 'doppler'.
+        - Dimensions are transposed for easier Doppler image calculations.
+        - An attribute 'N_aperture' is added to the dataset for reuse later.
     """
-    # matched filter
-    return np.exp(-1j*phi)
+
+    if N_aperture is None:
+        N_aperture = dat.tnum
+
+    # move back to time domain
+    if 'image_fd_mig' in dat.variables:
+        dat['image_mig'] = (('fasttime', 'slowtime'),
+                            np.fft.ifft(dat.image_fd_mig))
+        dat.drop_vars('image_fd_mig')
+    if 'image_fd' in dat.variables:
+        dat.drop_vars('image_fd')
+
+    # Reshape the dataset
+    dat_reshaped = dat.coarsen(slowtime=N_aperture, boundary='trim').construct(
+        slowtime=("alongtrack", "doppler"))
+    # swap the dimensions for easier calculations on doppler images
+    dat_reshaped = dat_reshaped.transpose('alongtrack', 'fasttime', 'doppler')
+    # add the number of traces in an aperture for reuse later
+    dat_reshaped = dat_reshaped.assign_attrs({'N_aperture': N_aperture})
+
+    return dat_reshaped
 
 
-def squint2dc(theta_sq, v, fc=190e6, n=1.775, c=3e8):
+def calculate_doppler_spectra(image):
     """
-    Squint angle to frequency of Doppler centroid
+    Calculates the Doppler spectra of an image using the FFT (Fast Fourier Transform).
 
-    Parameters
-    ----------
-    theta_sq:   float, squint angle
-    v:          float, platform velocity
+    Parameters:
+    image (ndarray): The input image data, typically a 2D array.
 
-    Output
-    ----------
-    f_dc:      float, frequency at Doppler centroid
+    Returns:
+    ndarray: The Doppler frequency spectrum after applying FFT and a Hanning window.
     """
-    lam = c/(fc)
-    f_dc = 2. * v * np.sin(snell(theta_sq, n))/lam
 
-    return f_dc
+    # FFT and shift to center zero frequency
+    image_fd = np.fft.fft(image)
+    dfreq_raw = np.fft.fftshift(image_fd, axes=2)
+    # Apply Hanning window to reduce spectral leakage
+    hann = np.hanning(np.shape(image)[2])
+    return dfreq_raw*hann
 
 
-def get_doppler_freq(tnum, theta_sq=0., v=100., dx=1.,
-                     fc=190e6, n=1.775, c=3e8):
+def get_reference_function(dat, xs, **kwargs):
     """
-    Doppler frequencies for full length of array
+    Generates a reference function for phase return as an aircraft passes a target.
 
-    Parameters
-    ----------
-    tnum:       int, number of traces in array
-    theta_sq:   float, squint angle
-    v:          float, platform velocity
-    dx:         float, spatial step between traces
+    This function computes a reference function used for along-track compression in 
+    SAR focusing. It calculates the expected range to the target, converts the range 
+    to phase, and generates a complex reference function for matched filtering. 
+    The result is returned in the frequency domain.
 
-    Output
-    ----------
-    f_doppler:  float, doppler frequencies across array
+    Parameters:
+        dat (object): An object containing SAR data and parameters. Expected attributes:
+            - tnum (int): Default number of apertures if `N_aperture` is not provided.
+            - snum (int): Number of samples in the slow-time dimension.
+            - dx (float): Spatial resolution in the along-track direction.
+            - fasttime (array-like): Array of fast-time values.
+            - h (float): Aircraft altitude.
+            - fc (float): Center frequency of the radar.
+        xs (float): Cross-track positions of the target through the aperture.
+        **kwargs: Additional keyword arguments passed to the `sar_raybend` function.
+
+    Returns:
+        numpy.ndarray: A 2D array of the reference function in the frequency domain, 
+        with dimensions `(dat.snum, N_aperture)`.
     """
-    # doppler bandwidth
-    f_bw = v/dx
-    # range of frequencies in the spectrogram
-    f = np.linspace(-f_bw/2., f_bw/2., tnum)
 
-    # find doppler centroid from squint angle
-    f_dc = squint2dc(theta_sq, v, fc, n, c)
+    # number of traces in the aperture
+    N_aperture = len(xs)
 
-    # find frequencies shift from squint
-    # and add it to the frequency array
-    f_doppler = f + f_bw * np.round((f_dc-f)/f_bw)
+    # pre-allocate reference function
+    C_ref = np.empty((dat.snum, N_aperture)).astype(complex)
+    for i, t0 in enumerate(dat.fasttime):
+        # calculate expected range to target
+        r = sar_raybend(t0.data, dat.h, xs, **kwargs)
+        # range to phase
+        phi = r2p(r, fc=dat.fc)
+        # calculate reference function from range
+        # Phase to complex number for matched filter in along-track compression
+        C_ref[i] = np.exp(-1j*phi)
 
-    return f_doppler
+    # conjugate of the reference function in frequency domain
+    C_ref_fd = fft(np.roll(np.conjugate(C_ref), -int(N_aperture//2)))
 
-
-def dc2squint(f_dc, v, fc=190e6, n=1.775, c=3e8):
-    """
-    Get squint angle from doppler centroid
-
-    Parameters
-    ----------
-    f_dc:      float, frequency at Doppler centroid
-    v:         float, platform velocity
-
-    Output
-    ----------
-    theta_sq:   float, squint angle
-    """
-    theta = np.arcsin(f_dc*c/(2.*v*fc))
-    # inverse of snells law
-    return snell(theta, 1./n)
-
-
-def data2dc(image, v, dx=1.,
-            fc=190e6, c=3e8):
-    """
-    Doppler centroid from data.
-
-    Parameters
-    ----------
-    image:   2-d array
-    dx:
-
-    Output
-    ----------
-    f_dc:
-    """
-    # TODO: not tested
-    snum, tnum = np.shape(image)
-    P_dop = np.empty((0, tnum-1))
-    for i in range(snum):
-        nus, power = periodogram(image[i], fs=1./dx)
-        idx = np.argsort(nus[1:])
-        P_dop = np.append(P_dop, [power[1:][idx]], axis=0)
-
-    # extract wavenumber with most power
-    nus_full = nus[idx]
-    nu_best = nus_full[np.argmax(P_dop, axis=1)]
-
-    # convert to frequency and return
-    return nu_best*c/(2.*v*fc)
+    return C_ref_fd

@@ -4,54 +4,95 @@
 Created on Mon Jan 28 2025
 
 @author: benhills
-"""
 
-import numpy as np
-
-"""
 Geometric functions for the squintsar processing library
 Following Heliere et al. (2007)
 https://doi.org/10.1109/TGRS.2007.897433
 """
 
-# refractive index for ice
-n = np.sqrt(3.15)
+import numpy as np
 
 
-def snell(theta, n=n):
+def snell(theta, n=np.sqrt(3.15)):
     """
-    Snell's Law
+    This function calculates the refracted angle based on Snell's Law, which describes 
+    the relationship between the angles of incidence and refraction when a wave passes 
+    through the interface between two media with different refractive indices.
 
-    Parameters
-    ----------
-    theta:  float, squint angle (propagation direction through air)
-    n:      float, refractive index of second material (first assumed air)
+    theta : float
+        Squint angle (propagation direction through air), in radians.
+    n : float
+        Refractive index of the second material (e.g., ice).
 
-    Output
-    ----------
-    float, refracted angle
+    Returns
+    -------
+    float
+        The refracted angle, in radians.
     """
-
     # refraction at air-ice interface
     return np.arcsin(np.sin(theta)/n)
 
 
-def get_depth_dist(t0, h, theta, n=n, c=3e8):
+def get_range(x, h, d, s, n=np.sqrt(3.15), c=3e8):
     """
-    Use Snell's law and simple trigonometry to find the depth of target
-    and along-track distance to closest approach.
+    Calculate the delta range to a target in seconds.
 
-    Parameters
-    ----------
-    t0: float, total range to target
-    h:  float, height of instrument above ice surface
-    theta:  float, squint angle (propagation direction through air)
-    n:  float, refractive index of second material (first assumed air)
+    This function computes the time it takes for a signal to travel to a target and back, 
+    accounting for propagation through air and a second material with a specified refractive index.
+    This is given as a difference from the range at the center of the aperture.
 
-    Output
-    ----------
-    d:  float,  depth of target beneath air-ice interface
-    x:  float,  along-track distance from instrument to target
+    x : float
+        Along-track distance from the instrument to the target (in meters).
+    h : float
+        Height of the instrument above the ice surface (in meters).
+    d : float
+        Depth of the target below the ice surface (in meters).
+    s : float
+        Horizontal offset of the target from the point of refraction (in meters).
+    n : float, optional
+        Refractive index of the second material (default is the refractive index of ice, `n`).
+    c : float, optional
+        Speed of light in vacuum (default is 3e8 m/s).
+
+    Returns
+    -------
+    float
+        Range to the target, in seconds, minus the range at the center of the aperture (i.e. returns deltaR)
+        accounting for propagation through air and the second material.
+    """
+
+    # propagation through air
+    delta_r_air = np.sqrt(h**2.+(x-s)**2.) - h
+    # propagation through ice
+    delta_r_ice = np.sqrt(d**2.+s**2.) - d
+
+    return delta_r_air/c + delta_r_ice*n/c
+
+
+def get_depth_dist(t0, h, theta=0, n=np.sqrt(3.15), c=3e8):
+    """
+    Calculate the depth of a target beneath the air-ice interface and the along-track 
+    distance to the closest approach using Snell's law and trigonometry.
+
+    t0 : float
+        Measured range to the target (in seconds).
+    h : float
+        Height of the instrument above the ice surface (in meters).
+    theta : float, optional
+        Squint angle, representing the propagation direction through air (in radians). 
+        Default is 0.
+    n : float
+        Refractive index of the second material. Default is for ice. 
+        The first material is assumed to be air.
+    c : float, optional
+        Speed of light in a vacuum (in meters per second). Default is 3e8.
+
+    Returns
+    -------
+    d : float
+        Depth of the target beneath the air-ice interface (in meters).
+    x : float
+        Along-track distance from the instrument to the target (in meters).
     """
 
     # Snells law
@@ -66,99 +107,43 @@ def get_depth_dist(t0, h, theta, n=n, c=3e8):
     return d, x_air+x_ice
 
 
-def get_refraction_point(x, h, d, n=n):
+def sar_raybend(t0, h, x, theta=0., n=np.sqrt(3.15), c=3e8, approximate=True):
     """
-    Get the refraction point from known geometry.
-    Solve a fourth order polynomial.
+    Calculate the SAR range offset across the full aperture considering ray bending in two mediums.
 
-    Parameters
-    ----------
-    x:  float,  along-track distance from instrument to target
-    h:  float, height of instrument above ice surface
-    d:  float,  depth of target beneath air-ice interface
-    n:  float, refractive index of second material (first assumed air)
+    This function computes the range to a target, accounting for ray bending due to the refractive index 
+    difference between two mediums (e.g., air and ice). The refractive index of the second medium is 
+    provided as input, and the first medium is assumed to be air.
 
-    Output
-    ----------
-    s:  float, along-track location where the ray intersects the ice surface
-    """
+    t0 : float
+        Measured range to the target (in seconds).
+    h : float
+        Height of the instrument above the ice surface (in meters).
+    x : float or array
+        Measured along-track distance (in meters).
+    theta : float, optional
+        Squint angle in radians. Default is 0.
+    n : float
+        Refractive index of the second medium. Default is for ice.
+    c : float, optional
+        Speed of light in m/s. Default is 3e8.
+    approximate : bool, optional
+        If True, use an approximate method to calculate the refraction point. Default is True.
 
-    if not hasattr(x, '__len__'):
-        x = np.array([x])
-    s = np.empty_like(x)
-
-    for i, xi in enumerate(x):
-        a4 = n**2.-1.
-        a3 = -2*a4*xi
-        a2 = a4*xi**2.+(n*h)**2.-d**2.
-        a1 = 2*d**2.*xi
-        a0 = -d**2.*xi**2.
-
-        # Define the coefficients of the polynomial
-        # in descending order of power (e.g., ax^4 + bx^3 + cx^2 + dx + e)
-        coefficients = [a4, a3, a2, a1, a0]
-
-        # Calculate the roots
-        roots = np.roots(coefficients)
-        # the smallest is the one we want
-        s[i] = roots[np.argmin(abs(roots))]
-
-    if len(s) == 1:
-        return s[0]
-    else:
-        return s
-
-
-def get_range(x, h, d, s, n=n, c=3e8):
-    """
-    Range to target.
-
-    Parameters
-    ----------
-    x:  float,  along-track distance from instrument to target
-    h:  float, height of instrument above ice surface
-    theta:  float, squint angle (propagation direction through air)
-    n:  float, refractive index of second material (first assumed air)
-
-    Output
-    ----------
-    r:  float,  range to target
-    """
-
-    # propagation through air
-    r_air = np.sqrt(h**2.+(x-s)**2.)
-    # propagation through ice
-    r_ice = np.sqrt(d**2.+s**2.)
-
-    return r_air/c + r_ice*n/c
-
-
-def sar_raybend(t0, h, x, theta=0., n=n, c=3e8, approximate=True):
-    """
-    Ray bending for sounding in two mediums.
-    Calculate the SAR range offset across the full aperture.
-    The refractive index (and notation) are for ice
-    but another material could be substituted.
-
-    Parameters
-    ----------
-    t0: float,  measured range to target
-    h:  float, height of instrument above ice surface
-    x:  float or array, measured along-track distance
-    theta:  float, squint angle
-    n:  float, refractive index of second material (first assumed air)
-
-    Output
-    ----------
-    r:  float,  range to target (offset versus r0 at aperture center)
+    Returns
+    -------
+    r : float
+        Range to the target, offset versus the range at the aperture center.
     """
 
     # for a given squint angle (theta) find the depth in ice
     # and along-track distance (x) from center of aperture to target
     d, x0 = get_depth_dist(t0, h, theta)
 
-    if d < 0:  # for returns above the ice surface
-        r = np.sqrt(h**2.+(x-x0)**2.)/c
+    # for returns above the ice surface
+    if d < 0:  
+        r = (np.sqrt(h**2.+(x-x0)**2.) - h)/c
+    # for returns below the ice surface
     else:
         # get the refraction point
         if approximate:
@@ -171,37 +156,54 @@ def sar_raybend(t0, h, x, theta=0., n=n, c=3e8, approximate=True):
     return r
 
 
-def sar_extent(t0, h, theta_sq, theta_beam=.1, dx=1):
+def get_refraction_point(x, h, d, n=np.sqrt(3.15)):
     """
-    Define the aperture extent based on the half beamwidth and squint angle.
-    Convert to index of the image array.
+    Get the refraction point from known geometry by solving a fourth-order polynomial.
 
-    Parameters
-    ----------
-    t0: float,  measured range to target
-    h:  float, height of instrument above ice surface
-    theta_sq:  float, squint angle
-    theta_beam:  float, squint angle
-    dx:
+    This function calculates the along-track location where a ray intersects the ice surface 
+    based on the geometry of the system and the refractive index of the second material.
 
-    Output
-    ----------
-    xs:     float,  along-track distances of illuminated beam
-    ind0:   int, integer index of the starting extent of beam
+    x : float or array-like
+        Along-track distance from the instrument to the target. If an array is provided, 
+        the function computes the refraction point for each element.
+    h : float
+        Height of the instrument above the ice surface.
+    d : float
+        Depth of the target beneath the air-ice interface.
+    n : float, optional
+        Refractive index of the second material (default is for ice, n = sqrt(3.15)).
+
+    Returns
+    -------
+    float or numpy.ndarray
+        The along-track location(s) where the ray intersects the ice surface. If `x` is a scalar, 
+        a single float is returned. If `x` is an array, a numpy array of the same shape is returned.
     """
 
-    # for a given squint angle (theta) find the depth in ice
-    # and along-track distance (x) from center of aperture to target
-    d, x0 = get_depth_dist(t0, h, theta_sq)
-    # define the synthetic aperture extents
-    d_, x_start = get_depth_dist(t0, h, theta_sq-theta_beam/2.)
-    d_, x_end = get_depth_dist(t0, h, theta_sq+theta_beam/2.)
+    # Ensure x is an array for consistent processing
+    x = np.asarray(x)
 
-    # aperture extents (index)
-    ind_start = np.round(x_start/(dx)).astype(int)
-    ind_end = np.round(x_end/(dx)).astype(int)
+    # Initialize an empty array to hold the refraction points
+    s = np.empty_like(x)
+    for i, xi in enumerate(x):
+        # Coefficients for the polynomial
+        # from Heliere et al. (2007) eq. (8)
+        a4 = n**2.-1.
+        a3 = -2*a4*xi
+        a2 = a4*xi**2.+(n*h)**2.-d**2.
+        a1 = 2*d**2.*xi
+        a0 = -(d*xi)**2.
 
-    # along-track distance for all points in the synthetic aperture
-    x_sa = np.linspace(x_start, x_end, (ind_end-ind_start)+1)
+        # Define the coefficients of the polynomial
+        # in descending order of power (e.g., a4x^4 + a3x^3 + a2x^2 + a1x + a0)
+        coefficients = [a4, a3, a2, a1, a0]
 
-    return x_sa+x0, ind_start
+        # Calculate the roots
+        roots = np.roots(coefficients)
+        # the smallest is the one we want
+        s[i] = roots[np.argmin(abs(roots))]
+
+    if len(s) == 1:
+        return s[0]
+    else:
+        return s

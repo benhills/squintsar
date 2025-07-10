@@ -11,19 +11,31 @@ import xarray as xr
 from scipy.io import loadmat
 from .supplemental import calc_dist
 
-"""
-Load functions for the squintsar processing library
-"""
-
 
 def load_cresis_range_compressed(fn, img=0, dset=None, c=3e8, eps=3.15):
     """
-    Load data from cresis matlab file
+    Load data from a CReSIS MATLAB file and return it as an xarray Dataset.
 
-    Parameters
-    ----------
-    fn: str, file name
-    img: int,
+    This function loads radar data stored in MATLAB files, extracting
+    information such as the radar image, geolocation, and metadata, and
+    organizes it into an xarray Dataset for further analysis.
+
+    fn : str
+        File path to the MATLAB file.
+    img : int, optional
+        Index of the radar image to load. Default is 0.
+    dset : xarray.Dataset, optional
+        An existing xarray Dataset to which the loaded data can be added. 
+        If None, a new Dataset is created. Default is None.
+    c : float, optional
+        Speed of light in free space (m/s). Default is 3e8.
+    eps : float, optional
+        Relative permittivity of the medium. Default is 3.15.
+
+    Returns
+    -------
+    xarray.Dataset
+        An xarray Dataset containing the radar image, geolocation, and metadata.
     """
     dat = loadmat(fn)
     # data image

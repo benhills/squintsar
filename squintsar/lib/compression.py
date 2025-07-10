@@ -6,65 +6,199 @@ Created on Mon Jul 3 2025
 @author: benhills
 """
 
+import time
 import numpy as np
-from numpy.fft import fft
-from .sar_geometry import sar_raybend, sar_extent
-from .supplemental import r2p
+import xarray as xr # type: ignore
+from numpy.fft import fft, ifft, fftshift
+from .sar_functions import *
 
 
-def sc_main(dat, image_fc, theta_sq=0., compression_type='standard'):
+def sar_main(dat, image, N_aperture=None, n_subaps=1,
+             compression_type='standard',
+             adaptive_window='linear-doppler',
+             **kwargs):
     """
-    Image compression in the along-track (azimuth) dimension.
-    Done in frequency domain.
+    Performs image compression in the along-track (azimuth) dimension using various methods.
+    The compression is done in the frequency domain and can be applied to a migrated image
+    or a range-compressed image.
 
-    Parameters
-    ----------
-    h:          float, height of instrument platform above ice surface
-    rm_flag:    bool, flag for range migration
-    theta_sq:   float, squint angle
+    dat : xarray.DataArray
+        Input data array containing the SAR data.
+    image : str
+        The name of the image variable to be processed.
+    N_aperture : int, optional
+        Number of traces in the aperture for processing. 
+        Default is None, which uses the total number of traces.
+    n_subaps : int, optional
+        Number of sub-apertures for sub-aperture processing. Default is 1.
+    compression_type : str, optional
+        Type of compression to apply. Options are:
+            - 'quick-look': Coherent stack along horizontal.
+            - 'standard': Standard SAR focusing with a single nadir aperture.
+            - 'subap': Sub-aperture processing.
+            - 'adaptive': Adaptive windowing based on Doppler spectra.
+        Default is 'standard'.
+    adaptive_window : str, optional
+        Type of adaptive window to use for 'adaptive' compression. Options are:
+            - 'linear-doppler': Linear Doppler-based windowing.
+            - 'fixed-bw': Adaptive Doppler centroid but fixed bandwidth
+            - 'fully-adaptive': Adaptive Doppler centroid and adaptive bandwidth
+        Default is 'linear-doppler'.
+    approximate : bool, optional
+        Whether to use approximate calculations for range. Default is True.
 
-    Output
-    ----------
-    image_ac:   complex, along-track compressed image
+    Returns
+    -------
+    image_ac : xarray.DataArray
+        The along-track compressed image. 
     """
 
-    return image_ac_fd
+    print('Compressing along-track dimension...')
+    start = time.time()
+
+    if compression_type == 'quick-look':
+        # expand the array to 3 dimensions
+        dat = reshape_on_aperture(dat, N_aperture)
+        # quick look processing is simply the coherent stack along horizontal
+        image_ac = dat.mean('doppler')[image].transpose()
+
+    elif compression_type == 'standard':
+        # standard sar focusing with a single nadir aperture
+        image_ac = standard(dat, image, **kwargs)
+
+    elif compression_type == 'subap':
+        images_subaps = subapertures(dat, image, n_subaps, **kwargs)
+        image_ac = np.mean(abs(images_subaps), axis=-1)
+
+    elif compression_type == 'adaptive':
+        # expand the array to 3 dimensions
+        dat = reshape_on_aperture(dat, N_aperture)
+
+        # get the doppler spectra
+        dfreq = xr.apply_ufunc(calculate_doppler_spectra,
+                               dat,
+                               input_core_dims=[["doppler"]],
+                               output_core_dims=[["doppler"]],
+                               exclude_dims=set(("doppler",)),
+                               )[image]
+
+        if adaptive_window == 'linear-doppler':
+            image_ac = dfreq.max('doppler').transpose()
+
+    print('Compression finished in:', round(time.time()-start, 2), 'sec')
+
+    return image_ac
 
 
+def standard(dat, image, **kwargs):
+    """
+    Perform standard image compression using frequency domain correlation.
 
-def standard():
+    This function computes the autocorrelation of an image in the frequency 
+    domain by applying a reference function and a Hanning window.
 
-    # output image shape is same as input image
-    self.image_ac = np.zeros((self.snum, self.tnum), dtype=np.complex128)
-    # reference array to be extended the full length of image
-    C_ref_c = np.zeros(self.tnum, dtype=np.complex128)
+    Args:
+        dat: Input data object containing the image and associated metadata.
+        image: Key or identifier for the image to be processed within `dat`.
+        **kwargs: Additional keyword arguments passed to the reference function.
 
-    # loop through all range bins
-    for si, ti in enumerate(self.ft):
+    Returns:
+        numpy.ndarray: The autocorrelated image in the spatial domain.
+    """
 
-        # get aperture extents
-        x, ind0 = sar_extent(ti, min(h, ti*self.c), theta_sq,
-                             self.theta_beam, self.dx)
-        # calculate range and reference function
-        r = sar_raybend(ti, min(h, ti*self.c), x, theta_sq)
-        C_ref = matched_filter(r2p(r, fc=self.fc))
+    # get the reference function
+    xs = dat.dx*(np.arange(np.shape(dat[image])[1]) - np.shape(dat[image])[1]//2)
+    C_ref_fd = get_reference_function(dat, xs, **kwargs)
 
-        C_ref_c[:len(C_ref)] = np.conjugate(C_ref)
-        # TODO: something up with this roll value for negative squints
-        # TODO: Rosen had it centered always where roll = len(C_ref)/2
-        C_ref_fq = fft(np.roll(C_ref_c, ind0))
+    # apply a hanning window
+    image_fd_hann = fftshift(fft(dat[image]))*np.hanning(np.shape(dat[image])[1])
 
-        # correlate in freqency space
-        self.image_ac[si] = image_fd[si]*C_ref_fq
+    # correlate in freqency space
+    image_ac = ifft(fftshift(image_fd_hann)*C_ref_fd)
 
-
-
-def subapertures():
+    return image_ac
 
 
-def linear_doppler():
+def subapertures(dat, image, n_subaps, **kwargs):
+    """
+    Processes subapertures of input data to multiple images focused with different 
+    portions of the Doppler spectra.
+
+    This function divides the input data into subapertures, applies a Hanning 
+    window to each subaperture, and performs correlation in the frequency 
+    domain using a reference function. The result is an array of focused 
+    images for each subaperture which may either be analyzed individually or 
+    eventually recombined with an incoherent average.
+
+    Args:
+        dat: Input data object containing the dataset. It is expected 
+            to have attributes such as `snum` and support indexing with `image`.
+        image: Key or identifier for the image to be processed within `dat`.
+        n_subaps: Number of subapertures to divide the data into.
+        **kwargs: Additional keyword arguments passed to the reference function 
+            generator.
+
+    Returns:
+        np.ndarray: A 3D complex array of shape `(dat.snum, N_aperture, n_subaps)` 
+        containing the autocorrelated images for each subaperture.
+    """
+
+    # FFT and shift to center zero frequency
+    data_fd = fftshift(fft(dat[image]))
+
+    # get the reference function
+    xs = dat.dx*(np.arange(np.shape(dat[image])[1]) - np.shape(dat[image])[1]//2)
+    C_ref_fd = get_reference_function(dat, xs, **kwargs)
+    # shift the zero frequency to the center
+    C_fd = fftshift(C_ref_fd)
+
+    # Define the aperture size for a subaperture
+    N_aperture = int(np.shape(dat[image])[1] // ((1 + n_subaps) / 2))
+    # same size for hanning window
+    Hwindow = np.hanning(N_aperture)
+
+    # pre-allocate output
+    image_ac = np.empty((dat.snum, N_aperture, n_subaps), dtype=complex)
+    for i in range(n_subaps):
+        # define the extent to sample
+        start, end = i * N_aperture // 2, (i + 2) * N_aperture // 2
+        data_sub = Hwindow * data_fd[:, start:end]
+        C_ref_sub = C_fd[:, start:end]
+        # correlate in frequency space
+        image_ac[:, :, i] = ifft(fftshift(data_sub * C_ref_sub))
+
+    return image_ac 
 
 
-def adaptive():
+def adaptive_squint(dopp_row, C_ref_fd_row, ddopp=7.74, dopp_bw=100.):
+    """
+    Computes the adaptive squint sample power by correlating a Doppler row
+    with a reference frequency domain row within a specified bandwidth.
 
+    Parameters:
+        dopp_row (array-like): The Doppler row data.
+        C_ref_fd_row (array-like): The reference frequency domain row data.
+        ddopp (float, optional): The Doppler resolution. Default is 7.74.
+        dopp_bw (float or str, optional): The Doppler bandwidth. If set to 
+            'adaptive', the bandwidth is determined adaptively. Default is 100.
 
+    Returns:
+        float: The computed sample power from the correlation.
+    """
+
+    # Doppler centroid
+    dc = np.argmax(dopp_row)
+    # window size
+    if dopp_bw != 'adaptive':
+        N_bw = np.ceil(dopp_bw/ddopp)
+    else:
+        N_bw = np.ceil(dopp_bw/ddopp)
+
+    # define the extent to sample
+    tnum = len(dopp_row)
+    start, end = max(0, int(dc-N_bw//2)), min(tnum-1, int(dc+N_bw//2))
+
+    # correlate in freqency space
+    sample_power = np.sum(dopp_row[start:end]*C_ref_fd_row[start:end])
+
+    return sample_power

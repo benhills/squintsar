@@ -4,49 +4,70 @@
 Created on Mon Jan 24 2025
 
 @author: benhills
+
+Supplemental functions for the squintsar processing library
 """
 
 import numpy as np
 from pyproj import Proj
 
-"""
-Supplemental functions for the squintsar processing library
-"""
-
 
 def dB(P):
     """
-    Convert power to decibels
+    Convert power to decibels.
 
-    Parameters
-    ----------
-    P:  float,  power
+    Parameters:
+        P (float): The power value to be converted to decibels.
+
+    Returns:
+        float: The power value in decibels.
     """
+    
     return 10.*np.log10(P)
 
 
 def r2p(r, fc=190e6):
     """
-    Convert range to phase
+    Convert range (in seconds) to phase.
 
-    Parameters
-    ----------
-    r:  float,  range
+    r : float
+        Range in seconds.
+    fc : float, optional
+        Carrier frequency in Hz. Default is 190e6.
+
+    Returns
+    -------
+    float
+        Phase corresponding to the given range.
     """
-    # phase
-    return 4.*np.pi*fc*r
+
+    return 4.*np.pi*r*fc
 
 
 def calc_dist(long, lat, epsg='3031'):
     """
-    Calculate along-track distance from x/y coordinates
+    Calculate the along-track distance from longitude and latitude coordinates.
 
-    Parameters
-    ----------
-    long:  float,  longitude
-    lat:  float,  latitude
-    epsg: str
+    This function projects geographic coordinates (longitude and latitude) into a 
+    specified EPSG coordinate system, computes the cumulative distance along the 
+    track, and calculates the mean spacing between points.
+
+    long : array-like
+        Longitude values in decimal degrees.
+    lat : array-like
+        Latitude values in decimal degrees.
+    epsg : str, optional
+        EPSG code for the projection system to use. Default is '3031' 
+        (Antarctic Polar Stereographic).
+
+    Returns
+    -------
+    dist : numpy.ndarray
+        Cumulative along-track distance in the projected coordinate system.
+    dx : float
+        Mean spacing between points along the track.
     """
+
     proj_stere = Proj('epsg:'+epsg)
     x, y = proj_stere(long, lat)
 
