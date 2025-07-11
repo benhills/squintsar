@@ -54,7 +54,6 @@ def sar_main(dat, image, N_aperture=None, stride=1, n_subaps=1,
     """
 
     print('Compressing along-track dimension...')
-    start = time.time()
 
     if compression_type == 'quick-look':
         # quick look processing is simply the coherent stack along horizontal
@@ -66,26 +65,26 @@ def sar_main(dat, image, N_aperture=None, stride=1, n_subaps=1,
         dat = standard(dat, image, **kwargs)
 
     elif compression_type == 'subap':
-        images_subaps = subapertures(dat, image, n_subaps, **kwargs)
-        image_ac = np.mean(abs(images_subaps), axis=-1)
+        dat = subapertures(dat, image, n_subaps, **kwargs)
 
     elif compression_type == 'adaptive':
         # expand the array into a new dimension with a rolling window
-        dat_rolling = dat.rolling(slowtime=N_aperture).construct('doppler',
-                                                                 stride=stride)
+        if not hasattr(dat,'doppler'):
+            dat = dat.rolling(slowtime=N_aperture).construct('doppler',
+                                                             stride=stride)
         # redefine the along-track positions to within the new rolling aperture
         xs = dat.dx*(np.arange(N_aperture) - N_aperture//2)
 
         # get the doppler spectra
         dfreq = xr.apply_ufunc(calculate_doppler_spectra,
-                               dat_rolling,
+                               dat[image],
                                input_core_dims=[["doppler"]],
                                output_core_dims=[["doppler"]],
                                exclude_dims=set(("doppler",)),
-                               )[image]
+                               )
 
         if adaptive_window == 'linear-doppler':
-            image_ac = dfreq.max('doppler')
+            dat['image_ac'] = (('fasttime', 'slowtime'), dfreq.max('doppler').data)
 
         else:
             # get the reference function
@@ -107,7 +106,7 @@ def sar_main(dat, image, N_aperture=None, stride=1, n_subaps=1,
                         kwargs=adaptive_kwargs,
                         vectorize=True)
 
-    print('Compression finished in:', round(time.time()-start, 2), 'sec')
+    print('Compression finished.')
 
     return dat
 
@@ -137,8 +136,9 @@ def standard(dat, image, **kwargs):
 
     # correlate in freqency space
     image_ac = ifft(fftshift(image_fd_hann, axes=-1)*C_ref_fd)
+    dat['image_ac'] = (('fasttime', 'slowtime'), image_ac)
 
-    return image_ac
+    return dat
 
 
 def subapertures(dat, image, n_subaps, **kwargs):
@@ -188,7 +188,17 @@ def subapertures(dat, image, n_subaps, **kwargs):
         # correlate in frequency space
         image_ac[:, :, i] = ifft(fftshift(data_sub*C_sub, axes=-1))
 
-    return image_ac
+    # expand dimensions to include subapertures
+    if not hasattr(dat,'subap'):
+        dat.expand_dims(dim={"subap":n_subaps, "slowtime_subap":N_subap})
+
+    # assign the focused subaperture images to the dataset
+    dat['image_subap_ac'] = (('fasttime', 'slowtime_subap', 'subap'), image_ac)
+    # combine subapertures through incoherent average
+    dat['image_ac'] = (('fasttime', 'slowtime_subap'), 
+                       np.mean(abs(image_ac), axis=-1))
+
+    return dat
 
 
 def adaptive_squint(dopp_row, C_ref_fd_row, ddopp=7.74, dopp_bw=100.):
