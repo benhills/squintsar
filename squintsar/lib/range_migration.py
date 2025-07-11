@@ -9,7 +9,7 @@ Created on Mon Jul 3 2025
 import numpy as np
 import time
 from numpy.fft import fft, ifft, fftshift
-from .sar_geometry import get_depth_dist, sar_raybend
+from .sar_geometry import snell, get_depth_dist, sar_raybend
 
 
 def rm_main(dat, **kwargs):
@@ -100,16 +100,26 @@ def rm_find_range(dat, N_aperture=None, **kwargs):
     f_dopp = np.linspace(-f_bw/2., f_bw/2., N_aperture)
 
     # squint angles from doppler frequencies TODO: this may be insufficiently precise
-    theta_sqs = np.arcsin(f_dopp*dat.c/(2.*dat.avg_vel*dat.fc)/dat.n)
+    theta_sqs = np.arcsin(f_dopp*dat.c/(2.*dat.avg_vel*dat.fc)) # /dat.n)
 
     # calculate range offset from along-track distances
     ft_rm = np.zeros((dat.snum, N_aperture)).astype(float)
     for i, t0 in enumerate(dat.fasttime):
-        # get along-track distances from squint angles
+
         d, _ = get_depth_dist(t0.data, dat.h)
-        xs = (dat.h+d)*np.tan(theta_sqs)  # TODO: this may be insufficiently precise
-        # calculate expected range to target
-        ft_rm[i] = sar_raybend(t0.data, dat.h, xs, **kwargs)
+
+        # get along-track distances from squint angles (air only)
+        xs_air = dat.h*np.tan(theta_sqs)
+        # for returns above the ice surface
+        if d < 0:  
+            # calculate expected delta range to target
+            ft_rm[i] = (np.sqrt(dat.h**2.+(xs_air)**2.) - dat.h)/dat.c
+        # for returns below the ice surface
+        else:
+            # get along-track distances from refracted squint angles (ice only)
+            xs_ice = d*np.tan(snell(theta_sqs))  # TODO: this may be insufficiently precise
+            # calculate expected range to target
+            ft_rm[i] = sar_raybend(t0.data, dat.h, (xs_air+xs_ice), **kwargs)
 
     return ft_rm
 

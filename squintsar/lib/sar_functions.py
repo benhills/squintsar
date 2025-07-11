@@ -12,53 +12,6 @@ from .sar_geometry import sar_raybend
 from .supplemental import r2p
 
 
-def reshape_on_aperture(dat, N_aperture):
-    """
-    Reshapes a dataset along the aperture dimension for SAR processing.
-
-    Parameters:
-    -----------
-    dat : xarray.Dataset
-        The input dataset containing SAR data. It is expected to have variables such as 
-        'image_fd_mig' or 'image_fd' for frequency domain data, and dimensions like 
-        'fasttime' and 'slowtime'.
-    N_aperture : int or None
-        The number of traces in an aperture. If None, it defaults to `dat.tnum`.
-
-    Returns:
-    --------
-    xarray.Dataset
-        The reshaped dataset with dimensions adjusted for aperture processing. The dataset 
-        will have the following modifications:
-        - Frequency domain variables ('image_fd_mig', 'image_fd') are dropped or converted 
-          back to the time domain.
-        - The 'slowtime' dimension is coarsened and split into 'alongtrack' and 'doppler'.
-        - Dimensions are transposed for easier Doppler image calculations.
-        - An attribute 'N_aperture' is added to the dataset for reuse later.
-    """
-
-    if N_aperture is None:
-        N_aperture = dat.tnum
-
-    # move back to time domain
-    if 'image_fd_mig' in dat.variables:
-        dat['image_mig'] = (('fasttime', 'slowtime'),
-                            np.fft.ifft(dat.image_fd_mig))
-        dat.drop_vars('image_fd_mig')
-    if 'image_fd' in dat.variables:
-        dat.drop_vars('image_fd')
-
-    # Reshape the dataset
-    dat_reshaped = dat.coarsen(slowtime=N_aperture, boundary='trim').construct(
-        slowtime=("alongtrack", "doppler"))
-    # swap the dimensions for easier calculations on doppler images
-    dat_reshaped = dat_reshaped.transpose('alongtrack', 'fasttime', 'doppler')
-    # add the number of traces in an aperture for reuse later
-    dat_reshaped = dat_reshaped.assign_attrs({'N_aperture': N_aperture})
-
-    return dat_reshaped
-
-
 def calculate_doppler_spectra(image):
     """
     Calculates the Doppler spectra of an image using the FFT (Fast Fourier Transform).
@@ -72,9 +25,9 @@ def calculate_doppler_spectra(image):
 
     # FFT and shift to center zero frequency
     image_fd = np.fft.fft(image)
-    dfreq_raw = np.fft.fftshift(image_fd, axes=2)
+    dfreq_raw = np.fft.fftshift(image_fd, axes=-1)
     # Apply Hanning window to reduce spectral leakage
-    hann = np.hanning(np.shape(image)[2])
+    hann = np.hanning(np.shape(image)[-1])
     return dfreq_raw*hann
 
 
