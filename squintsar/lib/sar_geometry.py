@@ -15,8 +15,8 @@ import numpy as np
 
 def snell(theta, n=np.sqrt(3.15)):
     """
-    This function calculates the refracted angle based on Snell's Law, which describes 
-    the relationship between the angles of incidence and refraction when a wave passes 
+    This function calculates the refracted angle based on Snell's Law, which describes
+    the relationship between the angles of incidence and refraction when a wave passes
     through the interface between two media with different refractive indices.
 
     theta : float
@@ -37,7 +37,7 @@ def get_range(x, h, d, s, n=np.sqrt(3.15), c=3e8):
     """
     Calculate the delta range to a target in seconds.
 
-    This function computes the time it takes for a signal to travel to a target and back, 
+    This function computes the time it takes for a signal to travel to a target and back,
     accounting for propagation through air and a second material with a specified refractive index.
     This is given as a difference from the range at the center of the aperture.
 
@@ -71,7 +71,7 @@ def get_range(x, h, d, s, n=np.sqrt(3.15), c=3e8):
 
 def get_depth_dist(t0, h, theta=0, n=np.sqrt(3.15), c=3e8):
     """
-    Calculate the depth of a target beneath the air-ice interface and the along-track 
+    Calculate the depth of a target beneath the air-ice interface and the along-track
     distance to the closest approach using Snell's law and trigonometry.
 
     t0 : float
@@ -79,10 +79,10 @@ def get_depth_dist(t0, h, theta=0, n=np.sqrt(3.15), c=3e8):
     h : float
         Height of the instrument above the ice surface (in meters).
     theta : float, optional
-        Squint angle, representing the propagation direction through air (in radians). 
+        Squint angle, representing the propagation direction through air (in radians).
         Default is 0.
     n : float
-        Refractive index of the second material. Default is for ice. 
+        Refractive index of the second material. Default is for ice.
         The first material is assumed to be air.
     c : float, optional
         Speed of light in a vacuum (in meters per second). Default is 3e8.
@@ -111,8 +111,8 @@ def sar_raybend(t0, h, x, theta=0., n=np.sqrt(3.15), c=3e8, approximate=True):
     """
     Calculate the SAR range offset across the full aperture considering ray bending in two mediums.
 
-    This function computes the range to a target, accounting for ray bending due to the refractive index 
-    difference between two mediums (e.g., air and ice). The refractive index of the second medium is 
+    This function computes the range to a target, accounting for ray bending due to the refractive index
+    difference between two mediums (e.g., air and ice). The refractive index of the second medium is
     provided as input, and the first medium is assumed to be air.
 
     t0 : float
@@ -141,7 +141,7 @@ def sar_raybend(t0, h, x, theta=0., n=np.sqrt(3.15), c=3e8, approximate=True):
     d, x0 = get_depth_dist(t0, h, theta)
 
     # for returns above the ice surface
-    if d < 0:  
+    if d < 0:
         r = (np.sqrt(h**2.+(x-x0)**2.) - h)/c
     # for returns below the ice surface
     else:
@@ -160,11 +160,11 @@ def get_refraction_point(x, h, d, n=np.sqrt(3.15)):
     """
     Get the refraction point from known geometry by solving a fourth-order polynomial.
 
-    This function calculates the along-track location where a ray intersects the ice surface 
+    This function calculates the along-track location where a ray intersects the ice surface
     based on the geometry of the system and the refractive index of the second material.
 
     x : float or array-like
-        Along-track distance from the instrument to the target. If an array is provided, 
+        Along-track distance from the instrument to the target. If an array is provided,
         the function computes the refraction point for each element.
     h : float
         Height of the instrument above the ice surface.
@@ -176,7 +176,7 @@ def get_refraction_point(x, h, d, n=np.sqrt(3.15)):
     Returns
     -------
     float or numpy.ndarray
-        The along-track location(s) where the ray intersects the ice surface. If `x` is a scalar, 
+        The along-track location(s) where the ray intersects the ice surface. If `x` is a scalar,
         a single float is returned. If `x` is an array, a numpy array of the same shape is returned.
     """
 

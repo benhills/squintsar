@@ -35,9 +35,9 @@ def get_reference_function(dat, xs, **kwargs):
     """
     Generates a reference function for phase return as an aircraft passes a target.
 
-    This function computes a reference function used for along-track compression in 
-    SAR focusing. It calculates the expected range to the target, converts the range 
-    to phase, and generates a complex reference function for matched filtering. 
+    This function computes a reference function used for along-track compression in
+    SAR focusing. It calculates the expected range to the target, converts the range
+    to phase, and generates a complex reference function for matched filtering.
     The result is returned in the frequency domain.
 
     Parameters:
@@ -52,7 +52,7 @@ def get_reference_function(dat, xs, **kwargs):
         **kwargs: Additional keyword arguments passed to the `sar_raybend` function.
 
     Returns:
-        numpy.ndarray: A 2D array of the reference function in the frequency domain, 
+        numpy.ndarray: A 2D array of the reference function in the frequency domain,
         with dimensions `(dat.snum, N_aperture)`.
     """
 

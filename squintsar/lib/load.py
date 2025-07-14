@@ -25,7 +25,7 @@ def load_cresis_range_compressed(fn, img=0, dset=None, c=3e8, eps=3.15):
     img : int, optional
         Index of the radar image to load. Default is 0.
     dset : xarray.Dataset, optional
-        An existing xarray Dataset to which the loaded data can be added. 
+        An existing xarray Dataset to which the loaded data can be added.
         If None, a new Dataset is created. Default is None.
     c : float, optional
         Speed of light in free space (m/s). Default is 3e8.
@@ -47,12 +47,10 @@ def load_cresis_range_compressed(fn, img=0, dset=None, c=3e8, eps=3.15):
     # slow time
     slowtime = np.squeeze(dat['hdr']['gps_time'][0][0])
     slowtime -= slowtime[0]
-    dst = np.mean(np.gradient(slowtime))
     # geolocation
     lat = np.squeeze(dat['hdr']['records'][0][0][img][0][0][0][7])
     lon = np.squeeze(dat['hdr']['records'][0][0][img][0][0][0][8])
-    dist, dx = calc_dist(lon, lat)
-    v = dx/dst
+    dist = calc_dist(lon, lat)
     # TODO: so ugly
     f0 = dat['hdr']['records'][0][0][img][0][0][0][1][0][0][12][0][0][5][0][0][2][0][0]
     f1 = dat['hdr']['records'][0][0][img][0][0][0][1][0][0][12][0][0][5][0][0][3][0][0]
@@ -61,7 +59,8 @@ def load_cresis_range_compressed(fn, img=0, dset=None, c=3e8, eps=3.15):
     # output as an xarray object
     if dset is None:
         dset = xr.Dataset({'image_rc': (['fasttime', 'slowtime'], image)},
-                          coords={'fasttime': fasttime, 'slowtime': slowtime,
+                          coords={'fasttime': fasttime, 
+                                  'slowtime': slowtime,
                                   'lon': ('slowtime', lon),
                                   'lat': ('slowtime', lat),
                                   'distance': ('slowtime', dist)},
@@ -71,13 +70,11 @@ def load_cresis_range_compressed(fn, img=0, dset=None, c=3e8, eps=3.15):
                                  'snum': snum,  # number of samples
                                  'dt': dt,      # fast time step
                                  'tnum': tnum,  # number of traces
-                                 'dx': dx,      # spatial step between traces
-                                 'avg_vel': v,  # average velocity
                                  'f0': f0,      # start frequency of chirp
                                  'f1': f1,      # end frequency of chirp
                                  'fc': fc})     # center frequency
 
-    # TODO: ad an option where the dataset already exists
+    # TODO: add an option where the dataset already exists
     # but we want to load another DataArray
     # else:
     #    dset
