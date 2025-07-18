@@ -7,12 +7,12 @@ Created on Mon Jan 24 2025
 """
 
 import numpy as np
-from numpy.fft import fft
+from numpy.fft import fft, ifft, fftshift
 from .sar_geometry import sar_raybend
 from .supplemental import r2p
 
 
-def calculate_doppler_spectra(image):
+def calculate_doppler_spectra(image, pad=0):
     """
     Calculates the Doppler spectra of an image using the FFT (Fast Fourier Transform).
 
@@ -24,14 +24,14 @@ def calculate_doppler_spectra(image):
     """
 
     # FFT and shift to center zero frequency
-    image_fd = np.fft.fft(image)
-    dfreq_raw = np.fft.fftshift(image_fd, axes=-1)
-    # Apply Hanning window to reduce spectral leakage
-    hann = np.hanning(np.shape(image)[-1])
-    return dfreq_raw*hann
+    image_fd = np.fft.fft(image, n=np.shape(image)[-1]+pad)
+    dfreq = np.fft.fftshift(image_fd, axes=-1)
+
+    return dfreq
 
 
-def get_reference_function(dat, xs, **kwargs):
+def get_reference_function(dat, 
+                           xs=None, pad=None, **kwargs):
     """
     Generates a reference function for phase return as an aircraft passes a target.
 
@@ -56,11 +56,13 @@ def get_reference_function(dat, xs, **kwargs):
         with dimensions `(dat.snum, N_aperture)`.
     """
 
-    # number of traces in the aperture
-    N_aperture = len(xs)
+    if xs is None:
+        xs = np.arange(-dat.L_aperture/2., dat.L_aperture/2., dat.dx) + dat.dx/2.
+    if pad is None:
+        pad = dat.N_aperture//2
 
     # pre-allocate reference function
-    C_ref = np.empty((dat.snum, N_aperture)).astype(complex)
+    C_ref = np.empty((dat.snum, dat.N_aperture)).astype(complex)
     for i, t0 in enumerate(dat.fasttime):
         # calculate expected range to target
         r = sar_raybend(t0.data, dat.h, xs, **kwargs)
@@ -70,7 +72,38 @@ def get_reference_function(dat, xs, **kwargs):
         # Phase to complex number for matched filter in along-track compression
         C_ref[i] = np.exp(-1j*phi)
 
-    # conjugate of the reference function in frequency domain
-    C_ref_fd = fft(np.roll(np.conjugate(C_ref), -int(N_aperture//2)))
+    # pad the array with zeros
+    C_ref = np.pad(C_ref,((0,0),(pad,pad)))
 
-    return C_ref_fd
+    # conjugate of the reference function in frequency domain
+    C_ref_fd = fft(np.roll(np.conjugate(C_ref), -int((dat.N_aperture)//2+pad)))
+
+    # assign to the data array
+    dat['C_ref'] = (('fasttime', 'doppler'), fftshift(C_ref_fd, axes=-1))
+
+    return dat
+
+
+def focus(spectra, C_ref, **kwargs):
+    """
+    Perform standard image compression using frequency domain correlation.
+
+    This function computes the autocorrelation of an image in the frequency
+    domain by applying a reference function and a Hanning window.
+
+    Args:
+        spectra: Input Doppler spectra to be focused
+        C_ref: reference function calculated from expected range offsets
+        **kwargs: Additional keyword arguments passed to the reference function.
+
+    Returns:
+        numpy.ndarray: The autocorrelated image in the spatial domain.
+    """
+
+    # Hanning window
+    Hwindow = np.hanning(np.shape(spectra)[-1])
+    # correlate in frequency space
+    spectra = fftshift(spectra*Hwindow*C_ref, axes=-1)
+      
+    # inverse Fourier transform back to time domain
+    return ifft(spectra)

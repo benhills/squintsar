@@ -6,16 +6,14 @@ Created on Mon Jul 3 2025
 @author: benhills
 """
 
-import time
 import numpy as np
 import xarray as xr # type: ignore
-from numpy.fft import fft, ifft, fftshift
 from .sar_functions import *
+from .supplemental import *
 
 
-def sar_main(dat, image, N_aperture=None, stride=1, n_subaps=1,
-             compression_type='standard',
-             adaptive_window='linear-doppler',
+def sar_main(dat, image, N_aperture=None, stride=1, n_subaps=11, d=2000.,
+             compression_type='standard', adaptive_window='linear-doppler',
              **kwargs):
     """
     Performs image compression in the along-track (azimuth) dimension using various methods.
@@ -55,6 +53,8 @@ def sar_main(dat, image, N_aperture=None, stride=1, n_subaps=1,
 
     print('Compressing along-track dimension...')
 
+    ### Quick Look Compression ###
+
     if compression_type == 'quick-look':
         # quick look processing is simply the coherent stack along horizontal
         if 'slowtime' in dat.dims:
@@ -64,27 +64,52 @@ def sar_main(dat, image, N_aperture=None, stride=1, n_subaps=1,
             dat = dat.coarsen(distance=N_aperture,
                                boundary='trim').mean()
 
+    ### Standard and Non-Adaptive Subapertures ###
+
     elif compression_type in ['standard', 'subap']:
 
-        # get the reference function
-        xs = np.arange(-dat.L_aperture/2., dat.L_aperture/2., 
-                    dat.dx) + dat.dx/2.
-        C_ref_fd = get_reference_function(dat, xs, **kwargs)
-        dat['C_ref_fd'] = (('fasttime', 'doppler'), C_ref_fd)
+        # reshape the data array into apertures
+        dat = reshape_on_aperture(dat, **kwargs)
 
-        # get the doppler spectra
-        dat = xr.apply_ufunc(calculate_doppler_spectra,
-                            dat,
+        # calculate the doppler spectra
+        dat = xr.apply_ufunc(calculate_doppler_spectra, dat,
                             input_core_dims=[["doppler"]],
                             output_core_dims=[["doppler"]],
-                            exclude_dims=set(("doppler",)))
+                            exclude_dims=set(("doppler",)),
+                            keep_attrs=True)
 
-        if compression_type == 'standard':
-            # standard sar focusing with a single nadir aperture
-            dat = standard(dat, image, **kwargs)
+        # get the reference function from expected range offset
+        dat = get_reference_function(dat, **kwargs)
 
-        elif compression_type == 'subap':
-            dat = subapertures(dat, image, n_subaps, **kwargs)
+        if compression_type == 'subap':
+            # reshape on squinted subapertures
+            # Define the size of a subaperture
+            N_subap = int(len(dat.doppler) // ((1 + n_subaps) / 2))
+            # expand dimensions to include subapertures
+            dat = dat.rolling(doppler=N_subap,
+                                min_periods=1).construct('subap',
+                                                        stride=N_subap//2,
+                                                        fill_value=0.)
+            # swap the dimension names to keep Doppler at the end
+        dat = dat.rename({'subap':'doppler','doppler':'subap'})
+
+        # use the reference function to focus the image
+        dat = xr.apply_ufunc(focus, dat, dat['C_ref'],
+                            input_core_dims=[["fasttime", "doppler"],["fasttime","doppler"]],
+                            output_core_dims=[["fasttime","doppler"]], vectorize=True,
+                            kwargs={'compression_type':compression_type,'n_subaps':n_subaps},
+                            keep_attrs=True)
+
+        # multilook on squinted subapertures
+        if compression_type == 'subap':
+            dat = dat.mean('subap')
+
+        # cut away the aperture padding
+        dat = dat.isel(doppler=np.arange(dat.N_aperture//2, 3*dat.N_aperture//2))
+        # restack apertures into one image
+        dat = dat.stack(alongtrack=("distance", "doppler"))
+
+    ### Adaptive Subapertures ###
 
     elif compression_type == 'adaptive':
         # expand the array into a new dimension with a rolling window
@@ -119,101 +144,13 @@ def sar_main(dat, image, N_aperture=None, stride=1, n_subaps=1,
             # apply the adaptive squint function
             image_ac = xr.apply_ufunc(adaptive_squint,
                         dfreq,
-                        dat['C_ref_fd'],
+                        dat['C_ref'],
                         input_core_dims=[['doppler'], ['doppler']],
                         output_core_dims=[[]],
                         kwargs=adaptive_kwargs,
                         vectorize=True)
 
     print('Compression finished.')
-
-    return dat
-
-
-def standard(dat, image, **kwargs):
-    """
-    Perform standard image compression using frequency domain correlation.
-
-    This function computes the autocorrelation of an image in the frequency
-    domain by applying a reference function and a Hanning window.
-
-    Args:
-        dat: Input data object containing the image and associated metadata.
-        image: Key or identifier for the image to be processed within `dat`.
-        **kwargs: Additional keyword arguments passed to the reference function.
-
-    Returns:
-        numpy.ndarray: The autocorrelated image in the spatial domain.
-    """
-
-    # apply a hanning window
-    image_fd_hann = fftshift(fft(dat[image]), axes=-1)*np.hanning(np.shape(dat[image])[1])
-
-    # correlate in freqency space
-    image_ac = ifft(fftshift(image_fd_hann, axes=-1)*C_ref_fd)
-    dat['image_ac'] = (('fasttime', 'slowtime'), image_ac)
-
-    return dat
-
-
-def focus(dat, image, n_subaps, **kwargs):
-    """
-    Processes subapertures of input data to multiple images focused with different
-    portions of the Doppler spectra.
-
-    This function divides the input data into subapertures, applies a Hanning
-    window to each subaperture, and performs correlation in the frequency
-    domain using a reference function. The result is an array of focused
-    images for each subaperture which may either be analyzed individually or
-    eventually recombined with an incoherent average.
-
-    Args:
-        dat: Input data object containing the dataset. It is expected
-            to have attributes such as `snum` and support indexing with `image`.
-        image: Key or identifier for the image to be processed within `dat`.
-        n_subaps: Number of subapertures to divide the data into.
-        **kwargs: Additional keyword arguments passed to the reference function
-            generator.
-
-    Returns:
-        np.ndarray: A 3D complex array of shape `(dat.snum, N_aperture, n_subaps)`
-        containing the autocorrelated images for each subaperture.
-    """
-
-    if method == 'standard':
-        Hwindow = np.hanning(dat.N_aperture)
-    elif method == 'subap':
-        # Define the aperture size for a subaperture
-        N_subap = int(np.shape(dat[image])[-1] // ((1 + n_subaps) / 2))
-        # same size for hanning window
-        Hwindow = np.hanning(N_subap)
-    
-    if method == 'standard':
-        # correlate in freqency space
-        dat['image_ac'] = (('fasttime', 'doppler'),
-                           ifft(fftshift(dat[image], axes=-1)*dat.C_ref_fd))
-    elif method == 'subap':
-        # shift the reference function to be subset in Doppler space
-        C_fd_shift = fftshift(C_ref_fd, axes=-1)
-        # pre-allocate output
-        image_ac = np.empty((dat.snum, N_subap, n_subaps), dtype=complex)
-        for i in range(n_subaps):
-            # define the extent to sample
-            start, end = i * N_subap// 2, (i + 2) * N_subap// 2
-            data_sub = Hwindow * data_fd[:, start:end]
-            C_sub = C_fd_shift[:, start:end]
-            # correlate in frequency space
-            image_ac[:, :, i] = ifft(fftshift(data_sub*C_sub, axes=-1))
-
-        # expand dimensions to include subapertures
-        if not hasattr(dat,'subap'):
-            dat.expand_dims(dim={"subap":n_subaps, "slowtime_subap":N_subap})
-
-        # assign the focused subaperture images to the dataset
-        dat['image_subap_ac'] = (('fasttime', 'slowtime_subap', 'subap'), image_ac)
-        # combine subapertures through incoherent average
-        dat['image_ac'] = (('fasttime', 'slowtime_subap'), 
-                        np.mean(abs(image_ac), axis=-1))
 
     return dat
 
