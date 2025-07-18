@@ -57,15 +57,34 @@ def sar_main(dat, image, N_aperture=None, stride=1, n_subaps=1,
 
     if compression_type == 'quick-look':
         # quick look processing is simply the coherent stack along horizontal
-        dat = dat.coarsen(slowtime=N_aperture,
+        if 'slowtime' in dat.dims:
+            dat = dat.coarsen(slowtime=N_aperture,
+                               boundary='trim').mean()
+        elif 'distance' in dat.dims:
+            dat = dat.coarsen(distance=N_aperture,
                                boundary='trim').mean()
 
-    elif compression_type == 'standard':
-        # standard sar focusing with a single nadir aperture
-        dat = standard(dat, image, **kwargs)
+    elif compression_type in ['standard', 'subap']:
 
-    elif compression_type == 'subap':
-        dat = subapertures(dat, image, n_subaps, **kwargs)
+        # get the reference function
+        xs = np.arange(-dat.L_aperture/2., dat.L_aperture/2., 
+                    dat.dx) + dat.dx/2.
+        C_ref_fd = get_reference_function(dat, xs, **kwargs)
+        dat['C_ref_fd'] = (('fasttime', 'doppler'), C_ref_fd)
+
+        # get the doppler spectra
+        dat = xr.apply_ufunc(calculate_doppler_spectra,
+                            dat,
+                            input_core_dims=[["doppler"]],
+                            output_core_dims=[["doppler"]],
+                            exclude_dims=set(("doppler",)))
+
+        if compression_type == 'standard':
+            # standard sar focusing with a single nadir aperture
+            dat = standard(dat, image, **kwargs)
+
+        elif compression_type == 'subap':
+            dat = subapertures(dat, image, n_subaps, **kwargs)
 
     elif compression_type == 'adaptive':
         # expand the array into a new dimension with a rolling window
@@ -127,10 +146,6 @@ def standard(dat, image, **kwargs):
         numpy.ndarray: The autocorrelated image in the spatial domain.
     """
 
-    # get the reference function
-    xs = dat.dx*(np.arange(np.shape(dat[image])[1]) - np.shape(dat[image])[1]//2)
-    C_ref_fd = get_reference_function(dat, xs, **kwargs)
-
     # apply a hanning window
     image_fd_hann = fftshift(fft(dat[image]), axes=-1)*np.hanning(np.shape(dat[image])[1])
 
@@ -141,7 +156,7 @@ def standard(dat, image, **kwargs):
     return dat
 
 
-def subapertures(dat, image, n_subaps, **kwargs):
+def focus(dat, image, n_subaps, **kwargs):
     """
     Processes subapertures of input data to multiple images focused with different
     portions of the Doppler spectra.
@@ -165,38 +180,40 @@ def subapertures(dat, image, n_subaps, **kwargs):
         containing the autocorrelated images for each subaperture.
     """
 
-    # get the reference function
-    xs = dat.dx*(np.arange(np.shape(dat[image])[-1]) - np.shape(dat[image])[-1]//2)
-    C_ref_fd = get_reference_function(dat, xs, **kwargs)
-    C_fd_shift = fftshift(C_ref_fd, axes=-1)
-
-    # Define the aperture size for a subaperture
-    N_subap = int(np.shape(dat[image])[-1] // ((1 + n_subaps) / 2))
-    # same size for hanning window
-    Hwindow = np.hanning(N_subap)
+    if method == 'standard':
+        Hwindow = np.hanning(dat.N_aperture)
+    elif method == 'subap':
+        # Define the aperture size for a subaperture
+        N_subap = int(np.shape(dat[image])[-1] // ((1 + n_subaps) / 2))
+        # same size for hanning window
+        Hwindow = np.hanning(N_subap)
     
-    # FFT and shift to center zero frequency
-    data_fd = fftshift(fft(dat[image]), axes=-1) 
+    if method == 'standard':
+        # correlate in freqency space
+        dat['image_ac'] = (('fasttime', 'doppler'),
+                           ifft(fftshift(dat[image], axes=-1)*dat.C_ref_fd))
+    elif method == 'subap':
+        # shift the reference function to be subset in Doppler space
+        C_fd_shift = fftshift(C_ref_fd, axes=-1)
+        # pre-allocate output
+        image_ac = np.empty((dat.snum, N_subap, n_subaps), dtype=complex)
+        for i in range(n_subaps):
+            # define the extent to sample
+            start, end = i * N_subap// 2, (i + 2) * N_subap// 2
+            data_sub = Hwindow * data_fd[:, start:end]
+            C_sub = C_fd_shift[:, start:end]
+            # correlate in frequency space
+            image_ac[:, :, i] = ifft(fftshift(data_sub*C_sub, axes=-1))
 
-    # pre-allocate output
-    image_ac = np.empty((dat.snum, N_subap, n_subaps), dtype=complex)
-    for i in range(n_subaps):
-        # define the extent to sample
-        start, end = i * N_subap// 2, (i + 2) * N_subap// 2
-        data_sub = Hwindow * data_fd[:, start:end]
-        C_sub = C_fd_shift[:, start:end]
-        # correlate in frequency space
-        image_ac[:, :, i] = ifft(fftshift(data_sub*C_sub, axes=-1))
+        # expand dimensions to include subapertures
+        if not hasattr(dat,'subap'):
+            dat.expand_dims(dim={"subap":n_subaps, "slowtime_subap":N_subap})
 
-    # expand dimensions to include subapertures
-    if not hasattr(dat,'subap'):
-        dat.expand_dims(dim={"subap":n_subaps, "slowtime_subap":N_subap})
-
-    # assign the focused subaperture images to the dataset
-    dat['image_subap_ac'] = (('fasttime', 'slowtime_subap', 'subap'), image_ac)
-    # combine subapertures through incoherent average
-    dat['image_ac'] = (('fasttime', 'slowtime_subap'), 
-                       np.mean(abs(image_ac), axis=-1))
+        # assign the focused subaperture images to the dataset
+        dat['image_subap_ac'] = (('fasttime', 'slowtime_subap', 'subap'), image_ac)
+        # combine subapertures through incoherent average
+        dat['image_ac'] = (('fasttime', 'slowtime_subap'), 
+                        np.mean(abs(image_ac), axis=-1))
 
     return dat
 
