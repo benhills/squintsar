@@ -51,7 +51,7 @@ def rm_main(dat, **kwargs):
 
     # back to time domain
     image_mig = ifft(image_fd_mig)
-    dat['image_mig'] = (('fasttime', 'slowtime'), image_mig)
+    dat['image_mig'] = (('fasttime', 'distance'), image_mig)
 
     print('Migration finished.')
 
