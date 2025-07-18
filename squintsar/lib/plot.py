@@ -11,23 +11,34 @@ import matplotlib.pyplot as plt
 from .supplemental import dB
 
 
-def imshow(image, vmin=-70, vmax=-40, cmap='Greys_r'):
+def imshow(image, vmin=None, vmax=30, cmap='Greys_r', cbar=None):
     """
 
     """
+
+    if vmin is None:
+        vmin = np.nanmedian(np.real(dB(image[2500:3000])))
+        vmax += vmin
 
     fig, ax = plt.subplots(1, 1)
 
-    ax.imshow(np.real(dB(image)),
+    im = ax.imshow(np.real(dB(image)),
               aspect='auto', vmin=vmin, vmax=vmax, cmap=cmap)
     ax.set_xlabel('Trace number')
     ax.set_ylabel('Sample number')
 
+    if cbar is not None:
+        plt.colorbar(im,label=cbar)
 
-def imdopp(spectra, vmin=-70, vmax=-40, cmap='Greys_r'):
+
+def imdopp(spectra, vmin=None, vmax=30, cmap='Greys_r'):
     """
 
     """
+
+    if vmin is None:
+        vmin = np.nanmedian(np.real(dB(spectra[2500:3000])))
+        vmax += vmin
 
     fig, ax = plt.subplots(1, 1)
 
