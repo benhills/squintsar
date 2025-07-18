@@ -83,8 +83,8 @@ def resample_alongtrack(dat, image, dist_new=None, dx=None,
                         method='sinc', filt_len=None):
     """
     Resamples data along the track by interpolating to arbitrary spacing
-    (defaults to uniform spacing) in the along-track distance and 
-    calculates the average velocity to be used in later processing steps.
+    (defaults to uniform spacing) in the along-track distance. Complex 
+    interpolation requires a sinc function or 
 
     Parameters:
     -----------
@@ -180,7 +180,7 @@ def resample_alongtrack(dat, image, dist_new=None, dx=None,
     return dat
 
 
-def reshape_on_aperture(dat, d=1000., N_aperture=None):
+def reshape_on_aperture(dat, d=1000., N_aperture=None, **kwargs):
     """
     Reshapes a dataset along the aperture dimension for SAR processing.
 
@@ -209,6 +209,9 @@ def reshape_on_aperture(dat, d=1000., N_aperture=None):
     L_aperture = dat.c/dat.fc*(dat.h+d/dat.n)/(2*dat.dx)
     if N_aperture is None:
         N_aperture = int(L_aperture/dat.dx)
+        # force N to be even for equal padding of N/2
+        if N_aperture % 2 == 1:
+            N_aperture -= 1
     elif N_aperture*dat.dx > L_aperture:
         warnings.warn('Aperture too large based on trace spacing, \
         automatically reducing N_aperture')
@@ -223,12 +226,12 @@ def reshape_on_aperture(dat, d=1000., N_aperture=None):
         dat.drop_vars('image_fd')
 
     # Reshape the dataset
-    dat_reshaped = dat.coarsen(distance=N_aperture, boundary='trim').construct(
-        distance=("alongtrack", "doppler"))
+    dat = dat.rolling(distance=2*N_aperture,
+                    center=True).construct('doppler', stride=N_aperture)
     # swap the dimensions for easier calculations on doppler images
-    dat_reshaped = dat_reshaped.transpose('alongtrack', 'fasttime', 'doppler')
+    dat = dat.transpose('distance', 'fasttime', 'doppler')
     # add the number of traces in an aperture and aperture length for reuse later
-    dat_reshaped = dat_reshaped.assign_attrs({'N_aperture': N_aperture, 
-                                              'L_aperture': N_aperture*dat.dx})
+    dat = dat.assign_attrs({'N_aperture': N_aperture, 
+                            'L_aperture': N_aperture*dat.dx})
 
-    return dat_reshaped
+    return dat
